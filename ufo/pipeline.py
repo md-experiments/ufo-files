@@ -260,24 +260,24 @@ def process_pending(rlog: RunLog, limit: int | None = None, record_ids: list[str
                 doc.attempts += 1
 
     needs_file = {r.id for r in rows if r.media_type == "pdf" and r.status in ("new", "failed", "unavailable") and r.file_url}
-    # Records that need no download (videos, images, already-downloaded PDFs)
-    # go first so the site fills up quickly on a fresh install.
-    for r in rows:
-        if r.id not in needs_file:
-            finish(r.id)
-
-    if needs_file:
-        rlog("downloading %d files", len(needs_file))
-        # Downloads run in the background; each document is extracted and
-        # classified as soon as its file lands, so progress is visible early.
-        with ThreadPoolExecutor(max_workers=max(1, s.download_workers)) as pool:
-            for fut in as_completed([pool.submit(_download, i) for i in sorted(needs_file)]):
-                doc_id, err = fut.result()
-                if err:
-                    failed.add(doc_id)
-                    rlog("download failed for doc %d: %s", doc_id, err[:300])
-                else:
-                    finish(doc_id)
+    # Downloads run in the background from the start. Meanwhile, records that
+    # need no download (videos, images, already-downloaded PDFs) are processed,
+    # then each PDF is extracted and classified as soon as its file lands, so
+    # the site fills up early on a fresh install.
+    with ThreadPoolExecutor(max_workers=max(1, s.download_workers)) as pool:
+        if needs_file:
+            rlog("downloading %d files", len(needs_file))
+        futures = [pool.submit(_download, i) for i in sorted(needs_file)]
+        for r in rows:
+            if r.id not in needs_file:
+                finish(r.id)
+        for fut in as_completed(futures):
+            doc_id, err = fut.result()
+            if err:
+                failed.add(doc_id)
+                rlog("download failed for doc %d: %s", doc_id, err[:300])
+            else:
+                finish(doc_id)
     rlog("processed %d, failed %d", ok, len(failed))
     return ok, len(failed)
 
