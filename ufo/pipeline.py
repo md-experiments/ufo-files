@@ -26,7 +26,8 @@ from .sources import RecordInfo, Source, get_sources
 log = logging.getLogger(__name__)
 
 MAX_ATTEMPTS = 5
-STALE_RUN = timedelta(hours=3)
+STALE_RUN = timedelta(minutes=10)  # no heartbeat for this long = dead run
+HEARTBEAT_SECONDS = 60
 _local_lock = threading.Lock()
 
 PENDING = ("new", "downloaded", "extracted", "failed", "unavailable")
@@ -317,18 +318,31 @@ def run_pipeline(trigger: str = "manual", sources: list[str] | None = None, limi
             running = db.scalar(
                 select(PipelineRun).where(PipelineRun.status == "running").order_by(PipelineRun.started_at.desc())
             )
-            if running and utcnow() - running.started_at < STALE_RUN:
+            if running and utcnow() - (running.heartbeat_at or running.started_at) < STALE_RUN:
                 log.info("pipeline run %d still in progress; skipping", running.id)
                 return None
             if running:
                 running.status, running.finished_at = "error", utcnow()
-                running.log = (running.log or "") + "\nmarked stale"
+                running.log = (running.log or "") + "\ninterrupted (no heartbeat)"
             run = PipelineRun(trigger=trigger)
             db.add(run)
             db.flush()
             run_id = run.id
 
         rlog = RunLog()
+        done = threading.Event()
+
+        def heartbeat() -> None:
+            while not done.wait(HEARTBEAT_SECONDS):
+                try:
+                    with session_scope() as db:
+                        run = db.get(PipelineRun, run_id)
+                        run.heartbeat_at = utcnow()
+                        run.log = rlog.text()
+                except Exception:  # pragma: no cover - best effort
+                    log.exception("heartbeat failed")
+
+        threading.Thread(target=heartbeat, name="pipeline-heartbeat", daemon=True).start()
         seen = new = updated = 0
         status = "ok"
         processed = failed = 0
@@ -347,6 +361,7 @@ def run_pipeline(trigger: str = "manual", sources: list[str] | None = None, limi
             rlog("pipeline error: %s", exc)
             log.exception("pipeline error")
         finally:
+            done.set()
             with session_scope() as db:
                 run = db.get(PipelineRun, run_id)
                 run.status = status

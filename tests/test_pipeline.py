@@ -149,3 +149,20 @@ def test_seed_roundtrip(fake, tmp_path):
     with dbmod.session_scope() as db:
         r = db.get(dbmod.PipelineRun, run)
         assert r.new_records == 0 and r.updated_records == 0
+
+
+def test_dead_run_does_not_block(fake):
+    from datetime import timedelta
+
+    from ufo.db import PipelineRun, session_scope, utcnow
+
+    with session_scope() as db:
+        db.add(PipelineRun(status="running", started_at=utcnow() - timedelta(hours=1),
+                           heartbeat_at=utcnow() - timedelta(minutes=30)))
+    assert pipeline.run_pipeline() is not None
+    with session_scope() as db:
+        assert db.get(PipelineRun, 1).status == "error"
+
+    with session_scope() as db:  # a live run (fresh heartbeat) does block
+        db.add(PipelineRun(status="running", heartbeat_at=utcnow()))
+    assert pipeline.run_pipeline() is None

@@ -18,6 +18,8 @@ from sqlalchemy import (
     UniqueConstraint,
     create_engine,
     event,
+    inspect,
+    text,
 )
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
@@ -148,6 +150,9 @@ class PipelineRun(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     started_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+    # refreshed every minute while the run is alive; a stale heartbeat means the
+    # process died (e.g. a redeploy) and the run no longer blocks new ones
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime, default=utcnow)
     status: Mapped[str] = mapped_column(String(16), default="running")  # running | ok | error
     trigger: Mapped[str] = mapped_column(String(32), default="manual")
     records_seen: Mapped[int] = mapped_column(Integer, default=0)
@@ -184,7 +189,25 @@ def get_engine() -> Engine:
 
 
 def init_db() -> None:
-    Base.metadata.create_all(get_engine())
+    engine = get_engine()
+    Base.metadata.create_all(engine)
+    _add_missing_columns(engine)
+
+
+def _add_missing_columns(engine: Engine) -> None:
+    """Minimal forward migration: add columns introduced after a database was
+    created (all new columns are nullable), so a persistent Railway volume or
+    Postgres keeps working across deploys."""
+    insp = inspect(engine)
+    with engine.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            if not insp.has_table(table.name):
+                continue
+            have = {c["name"] for c in insp.get_columns(table.name)}
+            for col in table.columns:
+                if col.name not in have:
+                    ddl = col.type.compile(dialect=engine.dialect)
+                    conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN "{col.name}" {ddl}'))
 
 
 def reset_engine() -> None:
