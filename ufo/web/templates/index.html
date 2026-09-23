@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% from "macros.html" import hbars, doc_card %}
+{% block content %}
+<section class="hero">
+  <div>
+    <div class="eyebrow">Declassified U.S. UAP records · PURSUE</div>
+    <h1>What has the government released about UFOs?</h1>
+    <p>Every record published in the rolling UFO file releases: downloaded, read (with OCR for scanned pages), and sorted by what it is about. Browse by topic, place, era and official assessment, or search the full text.</p>
+  </div>
+  <div class="status-line">
+    {% set lr = stats.last_run %}
+    {% if lr %}
+      <span class="dot {{ 'err' if lr.status == 'error' else ('run' if lr.status == 'running' else '') }}"></span>
+      <span>Checked for new files {{ lr.started_at | ago }}{% if lr.status == 'running' %} (running now){% elif lr.status == 'error' %} (last check hit an error){% endif %}.</span>
+    {% else %}
+      <span class="dot run"></span><span>Waiting for the first pipeline run.</span>
+    {% endif %}
+    <a href="/pipeline">Pipeline status →</a>
+  </div>
+</section>
+
+<section class="tiles" aria-label="Totals">
+  <div class="tile"><div class="v">{{ stats.releases }}</div><div class="k">Releases</div><div class="s">{% if releases %}since {{ releases[0].date | d }}{% endif %}</div></div>
+  <div class="tile"><div class="v">{{ stats.records | n }}</div><div class="k">Records</div><div class="s">documents, videos, images, audio</div></div>
+  <div class="tile"><div class="v">{{ stats.pages | n }}</div><div class="k">Pages read</div><div class="s">across {{ stats.documents | n }} PDFs</div></div>
+  <div class="tile"><div class="v">{{ stats.ocr_pages | n }}</div><div class="k">Pages OCR'd</div><div class="s">scanned without a text layer</div></div>
+  <div class="tile"><div class="v">{% if stats.oldest_year %}{{ stats.oldest_year }}–{{ stats.newest_year }}{% else %}—{% endif %}</div><div class="k">Incidents span</div><div class="s">{{ stats.agencies }} agencies</div></div>
+</section>
+
+{% if latest %}
+<section class="section">
+  <h2>Latest: {{ latest.label }}</h2>
+  <p class="secondary small">The most notable records from the newest release. <a href="{{ url('/documents', release=latest.id) }}">See all records in this release →</a></p>
+  <div class="highlights">
+    {% for d in latest_highlights %}{{ doc_card(d, show_release=False) }}{% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section class="section grid cols-2">
+  <div class="card">
+    <h2>Records per release <small>by media type</small></h2>
+    {% if releases %}
+    {% set mx = (releases | map(attribute='total') | max) or 1 %}
+    <div class="legend">{% for m in MEDIA_ORDER %}<span><i class="s-{{ m }}"></i>{{ MEDIA_LABELS[m] }}</span>{% endfor %}</div>
+    <div class="cols" role="img" aria-label="Records per release, stacked by media type">
+      {% for r in releases %}
+      <a class="col" href="{{ url('/documents', release=r.id) }}">
+        <span class="col-total">{{ r.total }}</span>
+        <span class="col-stack" style="height: {{ (100 * r.total / mx) | round(1) }}%">
+          {% for m in MEDIA_ORDER if r.counts.get(m) %}
+          <span class="col-seg s-{{ m }}" style="flex: {{ r.counts[m] }} 1 0" data-tip="{{ r.label }}: {{ r.counts[m] }} {{ MEDIA_LABELS[m] | lower }}"></span>
+          {% endfor %}
+        </span>
+      </a>
+      {% endfor %}
+    </div>
+    <div class="col-labels">{% for r in releases %}<span title="{{ r.label }}">{{ r.date.strftime('%b %-d') }}</span>{% endfor %}</div>
+    {% else %}<p class="muted">No releases recorded yet.</p>{% endif %}
+  </div>
+  <div class="card">
+    <h2>When the incidents happened <small>by decade</small></h2>
+    {% set mx = (eras | map(attribute='n') | max) or 1 %}
+    <div class="cols" role="img" aria-label="Records by incident decade">
+      {% for e in eras %}
+      <a class="col" href="{{ url('/documents', tag='era:' ~ e.value) }}">
+        <span class="col-total">{{ e.n or '' }}</span>
+        <span class="col-stack" style="height: {{ (100 * e.n / mx) | round(1) }}%"><span class="col-seg s-pdf" style="flex:1" data-tip="{{ e.label }}: {{ e.n }} records"></span></span>
+      </a>
+      {% endfor %}
+    </div>
+    <div class="col-labels">{% for e in eras %}<span>{{ e.label[2:] if loop.index > 1 else e.label }}</span>{% endfor %}</div>
+  </div>
+</section>
+
+<section class="section grid cols-3">
+  <div class="card"><h2>Topics</h2>{{ hbars(topics, 'topic', total=stats.records) }}</div>
+  <div class="card"><h2>Document types</h2>{{ hbars(kinds, 'kind', total=stats.records) }}</div>
+  <div class="card"><h2>Official assessment</h2>{{ hbars(assessments, 'assessment', total=stats.records) }}
+    <p class="muted small" style="margin-top:8px">The conclusion stated in the record itself.</p></div>
+</section>
+
+<section class="section grid cols-3">
+  <div class="card"><h2>Reported shapes</h2>{{ hbars(shapes, 'shape', total=stats.records) }}</div>
+  <div class="card"><h2>Who saw it</h2>{{ hbars(witnesses, 'witness', total=stats.records) }}</div>
+  <div class="card"><h2>How it was recorded</h2>{{ hbars(sensors, 'sensor', total=stats.records) }}</div>
+</section>
+
+<section class="section grid cols-3">
+  <div class="card"><h2>Regions</h2>{{ hbars(regions, 'region', total=stats.records) }}</div>
+  <div class="card"><h2>Top locations</h2>{{ hbars(locations, param='q', total=stats.records) }}</div>
+  <div class="card"><h2>Source agency</h2>{{ hbars(agencies, param='agency', total=stats.records) }}</div>
+</section>
+
+<section class="section grid cols-2">
+  <div class="card"><h2>Programs & investigations referenced</h2>{{ hbars(programs, 'program', total=stats.records) }}</div>
+  <div class="card">
+    <h2>Release table</h2>
+    <div class="table-scroll">
+    <table class="data">
+      <thead><tr><th>Release</th>{% for m in MEDIA_ORDER %}<th class="num">{{ MEDIA_LABELS[m] }}</th>{% endfor %}<th class="num">Pages</th></tr></thead>
+      <tbody>
+      {% for r in releases | reverse %}
+        <tr><td><a href="{{ url('/documents', release=r.id) }}">{{ r.label }}</a></td>
+          {% for m in MEDIA_ORDER %}<td class="num">{{ r.counts.get(m, 0) }}</td>{% endfor %}
+          <td class="num">{{ r.pages | n }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+</section>
+{% endblock %}

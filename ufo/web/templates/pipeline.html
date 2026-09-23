@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Pipeline · UFO Files{% endblock %}
+{% block content %}
+<h1>Pipeline</h1>
+<p class="secondary">The pipeline checks the official PURSUE index for new records every {{ settings.pipeline_interval_hours | round(1) }} hours, downloads new files (falling back to the Internet Archive when the government site blocks the request), extracts text page by page with OCR for scanned pages, and classifies each record using <strong>{{ classifier }}</strong>.</p>
+
+<section class="tiles">
+  {% for s in ['classified', 'extracted', 'downloaded', 'new', 'unavailable', 'failed'] %}
+  <div class="tile"><div class="v">{{ statuses.get(s, 0) | n }}</div><div class="k">{{ s | title }}</div></div>
+  {% endfor %}
+</section>
+
+<section class="section card">
+  <h2>Recent runs</h2>
+  {% if runs %}
+  <div class="table-scroll">
+  <table class="data">
+    <thead><tr><th>#</th><th>Started</th><th>Trigger</th><th>Status</th><th class="num">Listed</th><th class="num">New</th><th class="num">Updated</th><th class="num">Processed</th><th class="num">Failed</th><th>Duration</th></tr></thead>
+    <tbody>
+    {% for r in runs %}
+    <tr>
+      <td>{{ r.id }}</td><td>{{ r.started_at.strftime('%Y-%m-%d %H:%M') }} UTC</td><td>{{ r.trigger }}</td>
+      <td><span class="dot {{ 'err' if r.status == 'error' else ('run' if r.status == 'running' else '') }}"></span> {{ r.status }}</td>
+      <td class="num">{{ r.records_seen }}</td><td class="num">{{ r.new_records }}</td><td class="num">{{ r.updated_records }}</td>
+      <td class="num">{{ r.processed }}</td><td class="num">{{ r.failed }}</td>
+      <td>{% if r.finished_at %}{{ ((r.finished_at - r.started_at).total_seconds() / 60) | round(1) }} min{% else %}…{% endif %}</td>
+    </tr>
+    {% if r.log and loop.index <= 3 %}<tr><td></td><td colspan="9"><details><summary class="small muted">Log</summary><pre class="log">{{ r.log }}</pre></details></td></tr>{% endif %}
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}<p class="muted">No runs yet.</p>{% endif %}
+</section>
+{% endblock %}

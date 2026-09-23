@@ -1,0 +1,8 @@
+[project]
+name = "ufo-files"
+version = "0.1.0"
+description = "Pipeline and web app tracking the U.S. government's declassified UFO / UAP file releases"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

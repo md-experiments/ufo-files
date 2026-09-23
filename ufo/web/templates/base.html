@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}UFO Files Tracker{% endblock %}</title>
+<meta name="description" content="What the U.S. government has released in its declassified UFO / UAP files: releases, topics, locations and full-text search, with OCR of scanned pages.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css?v={{ version }}">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cellipse cx='16' cy='18' rx='14' ry='5' fill='%232a78d6'/%3E%3Cpath d='M9 17a7 7 0 0 1 14 0z' fill='%231c5cab'/%3E%3C/svg%3E">
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/">
+      <svg width="26" height="18" viewBox="0 0 32 22" aria-hidden="true"><ellipse cx="16" cy="14" rx="15" ry="5.5" fill="currentColor" opacity=".9"/><path d="M8.5 13a7.5 7.5 0 0 1 15 0z" fill="currentColor" opacity=".55"/></svg>
+      UFO FILES
+    </a>
+    <nav class="nav" aria-label="Main">
+      {% set p = request.url.path %}
+      <a href="/" class="{{ 'active' if p == '/' }}">Overview</a>
+      <a href="/releases" class="{{ 'active' if p.startswith('/releases') }}">Releases</a>
+      <a href="/documents" class="{{ 'active' if p.startswith('/documents') }}">Browse</a>
+      <a href="/pipeline" class="{{ 'active' if p.startswith('/pipeline') }}">Pipeline</a>
+    </nav>
+    <form class="header-search" action="/documents" role="search">
+      <input type="search" name="q" placeholder="Search all files…" aria-label="Search all files" value="{{ q if q is defined else '' }}">
+    </form>
+  </div>
+</header>
+<main class="wrap">
+{% block content %}{% endblock %}
+</main>
+<footer>
+  <div class="wrap">
+    Independent tracker of records published under PURSUE at <a href="https://www.war.gov/UFO/" rel="noopener">war.gov/UFO</a>. Summaries and labels are generated automatically and can be wrong, so check the original file for anything important. Data: <a href="/api/stats">/api/stats</a> · <a href="/api/documents">/api/documents</a>
+  </div>
+</footer>
+</body>
+</html>

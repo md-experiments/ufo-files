@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% from "macros.html" import doc_card %}
+{% block title %}Browse the UFO files{% endblock %}
+{% block content %}
+<h1>Browse the files</h1>
+<form class="filters" action="/documents">
+  <input type="search" name="q" value="{{ q }}" placeholder="Search titles, summaries and full text (e.g. orb, Roswell, radar)" aria-label="Search">
+  <select name="release" aria-label="Release">
+    <option value="">All releases</option>
+    {% for r in releases | reverse %}<option value="{{ r.id }}" {{ 'selected' if release == r.id }}>{{ r.label }}</option>{% endfor %}
+  </select>
+  <select name="agency" aria-label="Agency">
+    <option value="">All agencies</option>
+    {% for a, n in agencies %}<option value="{{ a }}" {{ 'selected' if agency == a }}>{{ a }} ({{ n }})</option>{% endfor %}
+  </select>
+  <select name="media" aria-label="Media type">
+    <option value="">All media</option>
+    {% for m in MEDIA_ORDER %}<option value="{{ m }}" {{ 'selected' if media == m }}>{{ MEDIA_LABELS[m] }}</option>{% endfor %}
+  </select>
+  <select name="sort" aria-label="Sort">
+    {% for k, v in [('release', 'Newest release'), ('significance', 'Most notable'), ('incident', 'Most recent incident'), ('oldest', 'Oldest incident'), ('pages', 'Most pages')] %}
+    <option value="{{ k }}" {{ 'selected' if sort == k }}>{{ v }}</option>{% endfor %}
+  </select>
+  {% for t in tag_values %}<input type="hidden" name="tag" value="{{ t }}">{% endfor %}
+  <button type="submit">Filter</button>
+</form>
+
+{% if tags or q or release or agency or media %}
+<div class="active-filters">
+  <span class="muted small">Filters:</span>
+  {% for f, v in tags %}
+    <a class="chip strong" title="Remove filter" href="{{ url('/documents', q=q, release=release, agency=agency, media=media, sort=sort, tag=tag_values | reject('equalto', f ~ ':' ~ v) | list) }}">{{ FACET_LABELS.get(f, f | title) }}: {{ label(f, v) }} ✕</a>
+  {% endfor %}
+  <a class="btn ghost small" href="/documents">Clear all</a>
+</div>
+{% endif %}
+
+<p class="muted small">{{ res.total | n }} record{{ 's' if res.total != 1 }}{% if res.pages > 1 %} · page {{ res.page }} of {{ res.pages }}{% endif %}</p>
+{% if res.items %}
+<div class="doc-list">
+  {% for d in res.items %}{{ doc_card(d, q=q) }}{% endfor %}
+</div>
+{% else %}
+<div class="empty">No records match these filters.</div>
+{% endif %}
+
+{% if res.pages > 1 %}
+<nav class="pager" aria-label="Pagination">
+  {% if res.page > 1 %}<a class="btn ghost" href="{{ url('/documents', q=q, release=release, agency=agency, media=media, sort=sort, tag=tag_values, page=res.page - 1) }}">← Previous</a>{% endif %}
+  <span class="muted small">Page {{ res.page }} / {{ res.pages }}</span>
+  {% if res.page < res.pages %}<a class="btn ghost" href="{{ url('/documents', q=q, release=release, agency=agency, media=media, sort=sort, tag=tag_values, page=res.page + 1) }}">Next →</a>{% endif %}
+</nav>
+{% endif %}
+{% endblock %}

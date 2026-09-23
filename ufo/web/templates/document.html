@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}{{ doc.record_id }} · UFO Files{% endblock %}
+{% block content %}
+<p class="small"><a href="/documents">← All files</a>{% if doc.release %} · <a href="{{ url('/documents', release=doc.release_id) }}">{{ doc.release.label }}</a>{% endif %}</p>
+<div class="doc-head">
+  <div>
+    <div class="eyebrow">{{ doc.record_id }} · {{ doc.media_type }}{% if doc.redacted %} · <span class="badge stamp">Redacted</span>{% endif %}</div>
+    <h1>{{ doc.title }}</h1>
+
+    {% if doc.summary %}
+    <div class="card" style="margin: 14px 0">
+      <h2>Summary <small>{{ 'written by ' ~ doc.classifier if doc.classifier and doc.classifier != 'rules' else "publisher's description" }}</small></h2>
+      <p>{{ doc.summary }}</p>
+      {% if doc.key_points %}
+      <ul class="keypoints">{% for k in doc.key_points %}<li>{{ k }}</li>{% endfor %}</ul>
+      {% endif %}
+      {% if doc.classification and doc.classification.significance_reason %}
+      <p class="muted small" style="margin-top:8px">Significance {{ doc.significance }}/5: {{ doc.classification.significance_reason }}</p>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% if doc.description and doc.description != doc.summary %}
+    <details class="page-text" {{ 'open' if not doc.summary or doc.classifier == 'rules' }}>
+      <summary><strong>Publisher's description</strong></summary>
+      <pre style="font-family: var(--sans); font-size: .9rem">{{ doc.description }}</pre>
+    </details>
+    {% endif %}
+
+    {% if doc.pages %}
+    <h2 class="section">Extracted text <small class="muted">{{ doc.page_count }} pages{% if doc.ocr_page_count %}, {{ doc.ocr_page_count }} via OCR (avg. confidence {{ doc.ocr_confidence }}%){% endif %}</small></h2>
+    {% for p in doc.pages %}
+      <details class="page-text" {{ 'open' if loop.index <= 2 }}>
+        <summary>Page {{ p.page_no }}
+          {% if p.method == 'ocr' %}<span class="badge ocr" title="Text recognised from a scanned image">OCR {{ p.confidence }}%</span>{% elif p.method == 'empty' %}<span class="badge">no text</span>{% endif %}
+          <span class="muted small">{{ p.text | length | n }} chars</span></summary>
+        <pre>{{ p.text or '(no readable text on this page)' }}</pre>
+      </details>
+    {% endfor %}
+    {% elif doc.media_type == 'pdf' %}
+      <div class="empty">Text not extracted yet (status: {{ doc.status }}{% if doc.error %}: {{ doc.error | truncate(200) }}{% endif %}).</div>
+    {% endif %}
+  </div>
+
+  <aside>
+    {% if doc.thumb_url %}<img class="thumb" src="{{ doc.thumb_url }}" alt="{{ (doc.raw or {}).get('Image Alt Text', '') }}" loading="lazy" referrerpolicy="no-referrer">{% endif %}
+    <div class="card" style="margin-top: 12px">
+      <dl class="kv">
+        <dt>Agency</dt><dd>{{ doc.agency or '—' }}</dd>
+        <dt>Released</dt><dd>{{ doc.release.release_date | d if doc.release else '—' }}</dd>
+        <dt>Incident date</dt><dd>{{ doc.incident_date_raw or '—' }}</dd>
+        <dt>Location</dt><dd>{{ doc.incident_location or '—' }}</dd>
+        {% if doc.page_count %}<dt>Pages</dt><dd>{{ doc.page_count }}{% if doc.ocr_page_count %} ({{ doc.ocr_page_count }} OCR){% endif %}</dd>{% endif %}
+        <dt>Original</dt><dd>{% if doc.file_url %}<a href="{{ doc.file_url }}" rel="noopener">{{ 'Watch on DVIDS' if doc.media_type in ('video', 'audio') else 'Open file' }} ↗</a>{% else %}—{% endif %}</dd>
+        {% if doc.fetched_via == 'wayback' and doc.file_url %}<dt>Archived copy</dt><dd><a href="https://web.archive.org/web/2026/{{ doc.file_url }}" rel="noopener">Wayback Machine ↗</a></dd>{% endif %}
+        <dt>Classified by</dt><dd>{{ doc.classifier or '—' }}</dd>
+      </dl>
+    </div>
+    <div class="card facet-groups" style="margin-top: 12px">
+      {% for facet, flabel, values in groups %}
+      <div><h3>{{ flabel }}</h3>
+        <div class="chips">{% for v, l in values %}<a class="chip" href="{{ url('/documents', tag=facet ~ ':' ~ v) }}">{{ l }}</a>{% endfor %}</div>
+      </div>
+      {% endfor %}
+      {% if doc.classification and doc.classification.locations %}
+      <div><h3>Places mentioned</h3><div class="chips">{% for l in doc.classification.locations %}<span class="chip">{{ l }}</span>{% endfor %}</div></div>
+      {% endif %}
+      {% if doc.classification and doc.classification.people_and_organizations %}
+      <div><h3>People & organizations</h3><div class="chips">{% for l in doc.classification.people_and_organizations %}<span class="chip">{{ l }}</span>{% endfor %}</div></div>
+      {% endif %}
+    </div>
+    {% if related %}
+    <div class="card" style="margin-top: 12px">
+      <h2>Related records</h2>
+      <ul style="margin:0; padding-left: 1.1rem">
+        {% for r in related %}<li><a href="/documents/{{ r.id }}">{{ r.title }}</a> <span class="badge">{{ r.media_type }}</span></li>{% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+  </aside>
+</div>
+{% endblock %}

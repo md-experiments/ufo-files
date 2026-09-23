@@ -1,0 +1,47 @@
+{% macro hbars(items, facet=None, param=None, limit=None, total=None) -%}
+{% set rows = items[:limit] if limit else items %}
+{% if rows %}
+{% set mx = (rows | map(attribute='n') | max) or 1 %}
+<ul class="hbars">
+{% for it in rows %}
+  {% set href = url('/documents', tag=facet ~ ':' ~ it.value) if facet else (url('/documents', **{param: it.value}) if param else '#') %}
+  <li><a class="hbar" href="{{ href }}" data-tip="{{ it.label }}: {{ it.n | n }} record{{ 's' if it.n != 1 }}{% if total %} ({{ (100 * it.n / total) | round | int }}%){% endif %}">
+    <span class="hbar-label">{{ it.label }}</span>
+    <span class="hbar-track"><span class="hbar-fill" style="width: {{ (100 * it.n / mx) | round(1) }}%"></span></span>
+    <span class="hbar-value">{{ it.n | n }}</span>
+  </a></li>
+{% endfor %}
+</ul>
+{% else %}
+<p class="muted small">No data yet.</p>
+{% endif %}
+{%- endmacro %}
+
+{% macro doc_card(d, q=None, show_release=True) -%}
+<article class="doc">
+  <div class="meta">
+    <span class="rid">{{ d.record_id }}</span>
+    <span class="badge">{{ d.media_type }}</span>
+    {% if d.agency %}<span>{{ d.agency }}</span>{% endif %}
+    {% if d.incident_date_raw or d.incident_year %}<span>Incident: {{ d.incident_date_raw or d.incident_year }}</span>{% endif %}
+    {% if d.incident_location %}<span>{{ d.incident_location }}</span>{% endif %}
+    {% if show_release and d.release %}<span>{{ d.release.label }}</span>{% endif %}
+    {% if d.page_count %}<span>{{ d.page_count }} page{{ 's' if d.page_count != 1 }}{% if d.ocr_page_count %} · {{ d.ocr_page_count }} OCR{% endif %}</span>{% endif %}
+  </div>
+  <h3><a href="/documents/{{ d.id }}">{{ d.title }}</a></h3>
+  {% if q %}
+    <p class="summary">{{ highlight(d.summary or d.description or d.text or '', q) }}</p>
+    {% if d.text and q and (q | lower) in (d.text | lower) and not ((q | lower) in ((d.summary or '') | lower)) %}
+      <p class="summary small">In text: {{ highlight(d.text, q, 180) }}</p>
+    {% endif %}
+  {% elif d.summary %}
+    <p class="summary">{{ d.summary | truncate(260) }}</p>
+  {% endif %}
+  <div class="chips">
+    {% if d.assessment and d.assessment != 'not_assessed' %}<a class="chip strong" href="{{ url('/documents', tag='assessment:' ~ d.assessment) }}">{{ label('assessment', d.assessment) }}</a>{% endif %}
+    {% for t in d.tags if t.facet in ('topic', 'shape') %}
+      {% if loop.index <= 6 %}<a class="chip" href="{{ url('/documents', tag=t.facet ~ ':' ~ t.value) }}">{{ label(t.facet, t.value) }}</a>{% endif %}
+    {% endfor %}
+  </div>
+</article>
+{%- endmacro %}
