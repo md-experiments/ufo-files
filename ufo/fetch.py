@@ -81,16 +81,9 @@ def fetch(url: str, mode: str | None = None, expect: str | None = None) -> Fetch
     ``expect`` is an optional content sniff: "pdf" requires a %PDF header, so an
     HTML error page served with status 200 is not mistaken for the document.
     """
-    mode = (mode or get_settings().fetch_mode).lower()
-    attempts: list[tuple[str, str]] = []
-    if mode in ("auto", "direct"):
-        attempts.append(("direct", url))
-    if mode in ("auto", "wayback"):
-        attempts.append(("wayback", wayback_url(url)))
-
     errors = []
     with _client() as client:
-        for via, target in attempts:
+        for via, target in _attempts(url, mode):
             try:
                 resp = _get(client, target)
             except FetchError as exc:
@@ -122,10 +115,59 @@ def request_archive(url: str) -> bool:
         return False
 
 
-def download(url: str, dest: Path, expect: str | None = None) -> FetchResult:
-    result = fetch(url, expect=expect)
+def _attempts(url: str, mode: str | None) -> list[tuple[str, str]]:
+    mode = (mode or get_settings().fetch_mode).lower()
+    out = []
+    if mode in ("auto", "direct"):
+        out.append(("direct", url))
+    if mode in ("auto", "wayback"):
+        out.append(("wayback", wayback_url(url)))
+    return out
+
+
+def _stream_to(client: httpx.Client, target: str, tmp: Path, expect: str | None) -> tuple[str | None, str]:
+    """Stream ``target`` into ``tmp``. Returns (error, content_type)."""
+    with client.stream("GET", target) as resp:
+        if resp.status_code >= 400:
+            return f"HTTP {resp.status_code}", ""
+        ctype = resp.headers.get("content-type", "")
+        chunks = resp.iter_bytes(1 << 20)
+        first = next(chunks, b"")
+        if "text/html" in ctype and b"Access Denied" in first[:2000]:
+            return "access denied", ctype
+        if expect == "pdf" and not first.lstrip()[:5].startswith(b"%PDF"):
+            return "response is not a PDF", ctype
+        with tmp.open("wb") as fh:
+            fh.write(first)
+            for chunk in chunks:
+                fh.write(chunk)
+    return None, ctype
+
+
+def download(url: str, dest: Path, expect: str | None = None, mode: str | None = None) -> FetchResult:
+    """Download ``url`` to ``dest``, streaming to disk (released files can be
+    hundreds of MB). Same direct -> Wayback fallback as :func:`fetch`; the
+    returned ``content`` is empty."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".part")
-    tmp.write_bytes(result.content)
-    tmp.replace(dest)
-    return result
+    errors = []
+    with _client() as client:
+        for via, target in _attempts(url, mode):
+            err = None
+            for attempt in range(3):
+                try:
+                    err, ctype = _stream_to(client, target, tmp, expect)
+                except httpx.HTTPError as exc:  # network error mid-transfer: retry
+                    err = f"network error: {exc}"
+                    time.sleep(2 ** (attempt + 1))
+                    continue
+                if err and err.startswith("HTTP 5") and attempt < 2:
+                    time.sleep(2 ** (attempt + 1))
+                    continue
+                break
+            if err is None:
+                tmp.replace(dest)
+                return FetchResult(url=url, via=via, content=b"", content_type=ctype)
+            errors.append(f"{via}: {err}")
+    tmp.unlink(missing_ok=True)
+    raise FetchError(f"could not fetch {url} ({'; '.join(errors)})")

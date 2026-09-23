@@ -21,29 +21,34 @@
     {% endif %}
 
     {% if doc.description and doc.description != doc.summary %}
-    <details class="page-text" {{ 'open' if not doc.summary or doc.classifier == 'rules' }}>
-      <summary><strong>Publisher's description</strong></summary>
+    <details class="page-text" {{ 'open' if not doc.summary }}>
+      <summary><strong>Full publisher's description</strong></summary>
       <pre style="font-family: var(--sans); font-size: .9rem">{{ doc.description }}</pre>
     </details>
     {% endif %}
 
     {% if doc.pages %}
-    <h2 class="section">Extracted text <small class="muted">{{ doc.page_count }} pages{% if doc.ocr_page_count %}, {{ doc.ocr_page_count }} via OCR (avg. confidence {{ doc.ocr_confidence }}%){% endif %}</small></h2>
-    {% for p in doc.pages %}
-      <details class="page-text" {{ 'open' if loop.index <= 2 }}>
-        <summary>Page {{ p.page_no }}
-          {% if p.method == 'ocr' %}<span class="badge ocr" title="Text recognised from a scanned image">OCR {{ p.confidence }}%</span>{% elif p.method == 'empty' %}<span class="badge">no text</span>{% endif %}
-          <span class="muted small">{{ p.text | length | n }} chars</span></summary>
+    <div class="section reader-head">
+      <h2>Extracted text</h2>
+      <span class="muted small">{{ doc.page_count }} page{{ 's' if doc.page_count != 1 }}{% if doc.ocr_page_count %} · {{ doc.ocr_page_count }} read with OCR (avg. confidence {{ doc.ocr_confidence }}%){% endif %}</span>
+      <a class="small" href="/documents/{{ doc.id }}/text.txt">Download .txt</a>
+    </div>
+    <div class="reader" tabindex="0" aria-label="Extracted text, page by page">
+      {% for p in doc.pages %}
+      <section class="reader-page" id="p{{ p.page_no }}">
+        <div class="reader-page-head"><a href="#p{{ p.page_no }}">Page {{ p.page_no }}</a>
+          {% if p.method == 'ocr' %}<span class="badge ocr" title="Text recognised from a scanned image">OCR {{ p.confidence }}%</span>{% elif p.method == 'empty' %}<span class="badge">no text</span>{% endif %}</div>
         <pre>{{ p.text or '(no readable text on this page)' }}</pre>
-      </details>
-    {% endfor %}
+      </section>
+      {% endfor %}
+    </div>
     {% elif doc.media_type == 'pdf' %}
       <div class="empty">Text not extracted yet (status: {{ doc.status }}{% if doc.error %}: {{ doc.error | truncate(200) }}{% endif %}).</div>
     {% endif %}
   </div>
 
   <aside>
-    {% if doc.thumb_url %}<img class="thumb" src="{{ doc.thumb_url }}" alt="{{ (doc.raw or {}).get('Image Alt Text', '') }}" loading="lazy" referrerpolicy="no-referrer">{% endif %}
+    {% if doc.thumb_url %}<img class="thumb" onerror="this.remove()" src="{{ doc.thumb_url }}" alt="{{ (doc.raw or {}).get('Image Alt Text', '') }}" loading="lazy" referrerpolicy="no-referrer">{% endif %}
     <div class="card" style="margin-top: 12px">
       <dl class="kv">
         <dt>Agency</dt><dd>{{ doc.agency or '—' }}</dd>
@@ -53,7 +58,7 @@
         {% if doc.page_count %}<dt>Pages</dt><dd>{{ doc.page_count }}{% if doc.ocr_page_count %} ({{ doc.ocr_page_count }} OCR){% endif %}</dd>{% endif %}
         <dt>Original</dt><dd>{% if doc.file_url %}<a href="{{ doc.file_url }}" rel="noopener">{{ 'Watch on DVIDS' if doc.media_type in ('video', 'audio') else 'Open file' }} ↗</a>{% else %}—{% endif %}</dd>
         {% if doc.fetched_via == 'wayback' and doc.file_url %}<dt>Archived copy</dt><dd><a href="https://web.archive.org/web/2026/{{ doc.file_url }}" rel="noopener">Wayback Machine ↗</a></dd>{% endif %}
-        <dt>Classified by</dt><dd>{{ doc.classifier or '—' }}</dd>
+        <dt>Classified by</dt><dd>{{ 'keyword rules' if doc.classifier == 'rules' else (doc.classifier or '—') }}</dd>
       </dl>
     </div>
     <div class="card facet-groups" style="margin-top: 12px">

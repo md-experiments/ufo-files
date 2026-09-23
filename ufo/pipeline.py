@@ -138,15 +138,18 @@ def _download(doc_id: int) -> tuple[int, str | None]:
             doc.status, doc.error = "unavailable", err[:2000]
             doc.attempts += 1
         return doc_id, err
-    data = path.read_bytes()
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
     with session_scope() as db:
         doc = db.get(Document, doc_id)
         doc.status = "downloaded"
         doc.error = None
         doc.fetched_via = res.via
         doc.file_path = str(path)
-        doc.file_size = len(data)
-        doc.file_sha256 = hashlib.sha256(data).hexdigest()
+        doc.file_size = path.stat().st_size
+        doc.file_sha256 = digest.hexdigest()
     return doc_id, None
 
 
@@ -229,39 +232,51 @@ def process_pending(rlog: RunLog, limit: int | None = None, record_ids: list[str
         return 0, 0
 
     rlog("processing %d records", len(rows))
-    to_download = [r.id for r in rows if r.media_type == "pdf" and r.status in ("new", "failed", "unavailable") and r.file_url]
     failed: set[int] = set()
-    if to_download:
-        rlog("downloading %d files", len(to_download))
+    ok = 0
+
+    def finish(doc_id: int) -> None:
+        """Extract (if needed) and classify one record, isolating failures."""
+        nonlocal ok
+        try:
+            with session_scope() as db:
+                doc = db.get(Document, doc_id)
+                status, media = doc.status, doc.media_type
+            if media == "pdf" and status == "downloaded":
+                _extract(doc_id)
+            elif media == "pdf" and status != "extracted":
+                return  # no file (e.g. no link published)
+            _classify(doc_id)
+            ok += 1
+            if ok % 10 == 0:
+                rlog("processed %d/%d", ok, len(rows))
+        except Exception as exc:
+            log.exception("processing doc %d failed", doc_id)
+            failed.add(doc_id)
+            with session_scope() as db:
+                doc = db.get(Document, doc_id)
+                doc.status, doc.error = "failed", f"{type(exc).__name__}: {exc}"[:2000]
+                doc.attempts += 1
+
+    needs_file = {r.id for r in rows if r.media_type == "pdf" and r.status in ("new", "failed", "unavailable") and r.file_url}
+    # Records that need no download (videos, images, already-downloaded PDFs)
+    # go first so the site fills up quickly on a fresh install.
+    for r in rows:
+        if r.id not in needs_file:
+            finish(r.id)
+
+    if needs_file:
+        rlog("downloading %d files", len(needs_file))
+        # Downloads run in the background; each document is extracted and
+        # classified as soon as its file lands, so progress is visible early.
         with ThreadPoolExecutor(max_workers=max(1, s.download_workers)) as pool:
-            for fut in as_completed([pool.submit(_download, i) for i in to_download]):
+            for fut in as_completed([pool.submit(_download, i) for i in sorted(needs_file)]):
                 doc_id, err = fut.result()
                 if err:
                     failed.add(doc_id)
                     rlog("download failed for doc %d: %s", doc_id, err[:300])
-
-    ok = 0
-    for r in rows:
-        if r.id in failed:
-            continue
-        try:
-            with session_scope() as db:
-                status = db.get(Document, r.id).status
-            if r.media_type == "pdf" and status in ("downloaded",):
-                _extract(r.id)
-            elif r.media_type == "pdf" and status != "extracted":
-                continue  # no file (e.g. still unavailable)
-            _classify(r.id)
-            ok += 1
-            if ok % 10 == 0:
-                rlog("processed %d/%d", ok, len(rows))
-        except Exception as exc:  # isolate per-document failures
-            log.exception("processing doc %d failed", r.id)
-            failed.add(r.id)
-            with session_scope() as db:
-                doc = db.get(Document, r.id)
-                doc.status, doc.error = "failed", f"{type(exc).__name__}: {exc}"[:2000]
-                doc.attempts += 1
+                else:
+                    finish(doc_id)
     rlog("processed %d, failed %d", ok, len(failed))
     return ok, len(failed)
 

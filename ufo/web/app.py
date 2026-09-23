@@ -9,7 +9,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup, escape
@@ -200,6 +200,17 @@ def document(request: Request, doc_id: int):
         if not doc:
             raise HTTPException(404, "document not found")
         return render(request, "document.html", doc=doc, groups=Q.grouped_tags(doc), related=Q.related(db, doc))
+
+
+@app.get("/documents/{doc_id}/text.txt", response_class=PlainTextResponse)
+def document_text(doc_id: int):
+    with session_scope() as db:
+        doc = Q.document(db, doc_id)
+        if not doc:
+            raise HTTPException(404, "document not found")
+        head = f"{doc.title}\nSource: {doc.file_url or '-'}\n\n"
+        return PlainTextResponse(head + (doc.text or ""), headers={
+            "Content-Disposition": f'inline; filename="{doc.record_id.replace(chr(34), "")}.txt"'})
 
 
 @app.get("/releases", response_class=HTMLResponse)
