@@ -56,6 +56,7 @@ class Settings:
     ocr_mode: str = field(default_factory=lambda: os.environ.get("OCR_MODE", "auto").lower())
     ocr_dpi: int = field(default_factory=lambda: _int("OCR_DPI", 300))
     ocr_lang: str = field(default_factory=lambda: os.environ.get("OCR_LANG", "eng"))
+    ocr_page_timeout: int = field(default_factory=lambda: _int("OCR_PAGE_TIMEOUT", 120))
     ocr_workers: int = field(default_factory=lambda: _int("OCR_WORKERS", 2))
     # A page with fewer embedded-text characters than this is OCR'd
     ocr_min_chars: int = field(default_factory=lambda: _int("OCR_MIN_CHARS", 80))

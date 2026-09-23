@@ -11,7 +11,7 @@ import logging
 import os
 import re
 import shutil
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -100,12 +100,13 @@ def needs_ocr(text: str, page: "pymupdf.Page", min_chars: int) -> bool:
     return False
 
 
-def ocr_image(png_bytes: bytes, lang: str) -> tuple[str, float | None]:
+def ocr_image(image, lang: str, timeout: int = 0) -> tuple[str, float | None]:
+    """OCR a PIL image (or PNG bytes). Returns (text, mean word confidence)."""
     import pytesseract
     from PIL import Image
 
-    img = Image.open(io.BytesIO(png_bytes))
-    data = pytesseract.image_to_data(img, lang=lang, output_type=pytesseract.Output.DICT)
+    img = Image.open(io.BytesIO(image)) if isinstance(image, (bytes, bytearray)) else image
+    data = pytesseract.image_to_data(img, lang=lang, output_type=pytesseract.Output.DICT, timeout=timeout)
     lines: dict[tuple[int, int, int], list[str]] = {}
     confs: list[float] = []
     for i, word in enumerate(data["text"]):
@@ -131,9 +132,60 @@ def _score(text: str) -> float:
     return meaningful_chars(text) * (0.25 + text_quality(text))
 
 
-def _render(page: "pymupdf.Page", dpi: int) -> bytes:
-    pix = page.get_pixmap(dpi=dpi, colorspace=pymupdf.csGRAY)
-    return pix.tobytes("png")
+def _to_image(pix: "pymupdf.Pixmap"):
+    from PIL import Image
+
+    return Image.frombytes("L", (pix.width, pix.height), pix.samples)
+
+
+def is_blank(page: "pymupdf.Page", threshold: float = 0.002) -> bool:
+    """Cheap low-resolution check for (nearly) empty scanned pages."""
+    hist = _to_image(page.get_pixmap(dpi=40, colorspace=pymupdf.csGRAY)).histogram()
+    total = sum(hist) or 1
+    return sum(hist[:128]) / total < threshold
+
+
+# --- OCR worker processes ----------------------------------------------------
+# Rendering (PyMuPDF) and recognition (Tesseract) both run in worker processes
+# that open the PDF themselves, so neither serialises on the main thread.
+
+_worker_docs: dict[str, "pymupdf.Document"] = {}
+
+
+def _ocr_page_task(path: str, index: int, dpi: int, lang: str, timeout: int) -> tuple[int, str, float | None, str | None]:
+    os.environ.setdefault("OMP_THREAD_LIMIT", "1")
+    try:
+        doc = _worker_docs.get(path)
+        if doc is None:
+            for old in list(_worker_docs.values()):
+                old.close()
+            _worker_docs.clear()
+            doc = _worker_docs[path] = pymupdf.open(path)
+        page = doc.load_page(index)
+        if is_blank(page):
+            return index, "", None, None
+        img = _to_image(page.get_pixmap(dpi=dpi, colorspace=pymupdf.csGRAY))
+        text, conf = ocr_image(img, lang, timeout)
+        return index, text, conf, None
+    except Exception as exc:  # reported back, never kills the pool
+        return index, "", None, f"{type(exc).__name__}: {exc}"
+
+
+_pool = None
+_pool_size = 0
+
+
+def _get_pool(workers: int):
+    global _pool, _pool_size
+    if _pool is None or _pool_size != workers:
+        import multiprocessing as mp
+        from concurrent.futures import ProcessPoolExecutor
+
+        if _pool is not None:
+            _pool.shutdown(cancel_futures=True)
+        _pool = ProcessPoolExecutor(max_workers=workers, mp_context=mp.get_context("spawn"))
+        _pool_size = workers
+    return _pool
 
 
 def extract_pdf(path: Path | str, ocr: bool | None = None, force_ocr: bool | None = None) -> Extraction:
@@ -150,39 +202,32 @@ def extract_pdf(path: Path | str, ocr: bool | None = None, force_ocr: bool | Non
         log.warning("tesseract not installed; scanned pages will be left empty")
         ocr = False
 
-    doc = pymupdf.open(str(path))
+    path = str(Path(path).resolve())
+    doc = pymupdf.open(path)
     result = Extraction(page_count=doc.page_count)
     n = min(doc.page_count, s.max_pages)
     result.truncated = doc.page_count > n
 
-    def apply_ocr(i: int, fut) -> None:
-        try:
-            text, conf = fut.result()
-        except Exception as exc:  # keep going; one bad page shouldn't sink the doc
-            log.warning("OCR failed on %s page %d: %s", path, i + 1, exc)
-            return
-        text = clean_text(text)
-        embedded = result.pages[i].text
-        # keep whichever is better: OCR or the embedded layer (ties go to the
-        # embedded text, which is exact when present)
-        if _score(text) > _score(embedded) * 1.05:
-            result.pages[i] = PageText(i + 1, text, "ocr" if text else "empty", conf)
-
-    # tesseract runs in a subprocess, so threads give real parallelism. Keep the
-    # number of rendered pages in flight bounded so huge scans don't exhaust RAM.
-    workers = max(1, s.ocr_workers)
-    in_flight: list[tuple[int, object]] = []
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        for i in range(n):
-            page = doc.load_page(i)
-            text = clean_text(page.get_text("text", sort=True))
-            method = "text" if text else "empty"
-            result.pages.append(PageText(i + 1, text, method))
-            if ocr and (force_ocr or needs_ocr(text, page, s.ocr_min_chars)):
-                in_flight.append((i, pool.submit(ocr_image, _render(page, s.ocr_dpi), s.ocr_lang)))
-                if len(in_flight) >= workers * 2:
-                    apply_ocr(*in_flight.pop(0))
-        for item in in_flight:
-            apply_ocr(*item)
+    to_ocr: list[int] = []
+    for i in range(n):
+        page = doc.load_page(i)
+        text = clean_text(page.get_text("text", sort=True))
+        result.pages.append(PageText(i + 1, text, "text" if text else "empty"))
+        if ocr and (force_ocr or needs_ocr(text, page, s.ocr_min_chars)):
+            to_ocr.append(i)
     doc.close()
+
+    if to_ocr:
+        pool = _get_pool(max(1, s.ocr_workers))
+        futures = [pool.submit(_ocr_page_task, path, i, s.ocr_dpi, s.ocr_lang, s.ocr_page_timeout) for i in to_ocr]
+        for fut in as_completed(futures):
+            i, text, conf, err = fut.result()
+            if err:  # keep going; one bad page shouldn't sink the doc
+                log.warning("OCR failed on %s page %d: %s", path, i + 1, err)
+                continue
+            text = clean_text(text)
+            # keep whichever is better: OCR or the embedded layer (ties go to
+            # the embedded text, which is exact when present)
+            if _score(text) > _score(result.pages[i].text) * 1.05:
+                result.pages[i] = PageText(i + 1, text, "ocr" if text else "empty", conf)
     return result
