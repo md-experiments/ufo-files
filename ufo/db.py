@@ -59,18 +59,18 @@ class Document(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     source: Mapped[str] = mapped_column(String(64), index=True)
-    record_id: Mapped[str] = mapped_column(String(128), index=True)
+    record_id: Mapped[str] = mapped_column(String(512), index=True)
     release_id: Mapped[int | None] = mapped_column(ForeignKey("releases.id"), index=True)
 
     # --- metadata from the publisher -----------------------------------
     title: Mapped[str] = mapped_column(Text)
     media_type: Mapped[str] = mapped_column(String(16), index=True)  # pdf | image | video | audio
-    agency: Mapped[str | None] = mapped_column(String(128), index=True)
+    agency: Mapped[str | None] = mapped_column(String(255), index=True)
     description: Mapped[str | None] = mapped_column(Text)
     incident_date: Mapped[date | None] = mapped_column(Date)
-    incident_date_raw: Mapped[str | None] = mapped_column(String(64))
+    incident_date_raw: Mapped[str | None] = mapped_column(String(255))
     incident_year: Mapped[int | None] = mapped_column(Integer, index=True)
-    incident_location: Mapped[str | None] = mapped_column(String(256))
+    incident_location: Mapped[str | None] = mapped_column(Text)
     file_url: Mapped[str | None] = mapped_column(Text)
     thumb_url: Mapped[str | None] = mapped_column(Text)
     video_id: Mapped[str | None] = mapped_column(String(64))
@@ -139,7 +139,7 @@ class Tag(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     document_id: Mapped[int] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), index=True)
     facet: Mapped[str] = mapped_column(String(32), index=True)
-    value: Mapped[str] = mapped_column(String(128), index=True)
+    value: Mapped[str] = mapped_column(String(255), index=True)
 
     document: Mapped[Document] = relationship(back_populates="tags")
 

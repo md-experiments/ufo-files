@@ -11,7 +11,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 def env(tmp_path, monkeypatch):
     """Isolated data dir + SQLite DB per test, no LLM, no scheduler."""
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
-    monkeypatch.delenv("DATABASE_URL", raising=False)
+    # set TEST_DATABASE_URL (e.g. postgresql://...) to run against Postgres
+    if os.environ.get("TEST_DATABASE_URL"):
+        monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    else:
+        monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.setenv("LLM_ENABLED", "false")
     monkeypatch.setenv("SCHEDULER_ENABLED", "false")
@@ -20,6 +24,7 @@ def env(tmp_path, monkeypatch):
 
     config.reset_settings()
     db.reset_engine()
+    db.Base.metadata.drop_all(db.get_engine())
     db.init_db()
     yield tmp_path
     db.reset_engine()

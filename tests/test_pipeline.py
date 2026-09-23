@@ -121,7 +121,7 @@ def test_web_pages_render(fake):
         assert client.post("/api/pipeline/run").status_code == 401
 
 
-def test_seed_roundtrip(fake, tmp_path):
+def test_seed_roundtrip(fake, tmp_path, monkeypatch):
     from ufo import db as dbmod
     from ufo.seed import export_seed, import_seed
 
@@ -132,12 +132,13 @@ def test_seed_roundtrip(fake, tmp_path):
     seed = tmp_path / "seed.json.gz"
     assert export_seed(seed) == 1
 
-    # fresh database
-    dbmod.reset_engine()
+    # fresh database (new SQLite file, or emptied Postgres)
     from ufo import config
-    import os
-    os.environ["DATA_DIR"] = str(tmp_path / "fresh")
+
+    dbmod.reset_engine()
+    monkeypatch.setenv("DATA_DIR", str(tmp_path / "fresh"))
     config.reset_settings()
+    dbmod.Base.metadata.drop_all(dbmod.get_engine())
     dbmod.init_db()
     assert import_seed(seed) == 1
     assert import_seed(seed) == 0  # only into an empty DB
