@@ -66,3 +66,10 @@ def test_aaro_attribution_and_entity_do_not_tag():
     assert "contact_claims" not in r.tags.get("topic", [])
     assert "government_program" not in r.tags.get("topic", [])
     assert "aaro" not in r.tags.get("program", [])
+
+
+def test_hoax_needs_an_actual_finding():
+    assert classify_rules("DIRD", "Methods to fabricate metallic glasses.", None, "pdf").assessment != "hoax"
+    assert classify_rules("Study", "Reports consistent with real objects rather than fabrications.", None, "pdf").assessment != "hoax"
+    assert classify_rules("Cable", "The embassy characterized the reports as a fabrication originating in Rio.", None, "pdf").assessment == "hoax"
+    assert classify_rules("Memo", "The photo was a hoax.", None, "pdf").assessment == "hoax"

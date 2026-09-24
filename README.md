@@ -61,7 +61,7 @@ taxonomy (`ufo/classify/taxonomy.py`):
 | Witness | military pilot, law enforcement, civilian, astronaut, scientist… |
 | Evidence / sensor | visual, radar, infrared, video, photo, satellite, sonar |
 | Official assessment | unresolved, or explained as balloon / aircraft / birds / satellite / astronomical / artifact, hoax |
-| Program | Project Blue Book, Sign/Grudge, Robertson Panel, Condon, AAWSAP/AATIP, UAPTF, AARO, Apollo, FBI vault |
+| Program | Project Blue Book, Sign/Grudge, Robertson Panel, Condon, AAWSAP/AATIP, UAP Task Force, Apollo/Gemini/Mercury |
 | Region / era | derived from incident location and date |
 
 * The **keyword rules** classifier always runs and needs no API key. It uses the

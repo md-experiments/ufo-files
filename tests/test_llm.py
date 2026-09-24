@@ -19,7 +19,7 @@ def _payload():
         "witnesses": ["military_pilot"],
         "sensors": ["infrared", "video"],
         "assessment": "unresolved",
-        "programs": ["aaro"],
+        "programs": ["uaptf"],
         "locations": ["East China Sea"],
         "people_and_organizations": ["INDOPACOM"],
         "incident_years": [2024],

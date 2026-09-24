@@ -130,7 +130,7 @@ footer { border-top: 1px solid var(--border); padding: 20px 0 40px; color: var(-
 
 /* horizontal bars */
 .hbars { list-style: none; padding: 0; margin: 0; display: grid; gap: 2px; }
-.hbar { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(48px, 1fr) 2.6rem; gap: 10px; align-items: center; padding: 4px 6px; border-radius: 6px; color: var(--text-primary); position: relative; }
+.hbar { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(40px, 1fr) 2.4rem; gap: 10px; align-items: center; padding: 4px 6px; border-radius: 6px; color: var(--text-primary); position: relative; }
 .hbar:hover { background: var(--surface-2); text-decoration: none; }
 .hbar-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: .88rem; color: var(--text-secondary); }
 .hbar:hover .hbar-label { color: var(--text-primary); }

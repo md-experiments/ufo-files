@@ -76,14 +76,12 @@ RULES: dict[str, dict[str, str]] = {
         "condon": r"condon",
         "aawsap": r"aawsap|aatip|bigelow|baass|dird",
         "uaptf": r"uap task force|uaptf",
-        "aaro": r"aaro|all-domain anomaly resolution",
         "apollo": r"apollo|gemini|mercury|skylab",
-        "fbi_vault": r"flying disc|flying saucer|fbi",
     },
 }
 
 ASSESSMENT_RULES = [
-    ("hoax", r"hoax|fabricat|forged|fake"),
+    ("hoax", r"\bhoax(?:es|ed)?\b|characteri[sz]\w* [^.]{0,60}\bas (?:a |an )?(?:fabrication|forgery|hoax)|(?:report|photo(?:graph)?|image|video|story|claim|sighting)s? (?:was|were) (?:a |an )?(?:fabrication|forgery|fabricated|faked|staged)"),
     ("resolved_balloon", r"(?:assessed|determined|identified|resolved|consistent with|likely)[^.]{0,80}balloons?"),
     ("resolved_bird", r"(?:assessed|determined|identified|resolved|consistent with|likely|were)[^.]{0,80}(?:birds?|seabirds?|seagulls?)"),
     ("resolved_satellite", r"(?:assessed|determined|identified|resolved|consistent with|likely)[^.]{0,80}(?:satellites?|starlink|space debris|rocket body)"),
