@@ -23,9 +23,9 @@ RULES: dict[str, dict[str, str]] = {
         "public_sighting": r"civilian|citizen|resident|member of the public|farmer|witness(?:es)? reported|usper",
         "drones": r"drones?|uas\b|unmanned|swarm",
         "crash_retrieval": r"crash(?:ed)?|debris|wreckage|recovered (?:object|material)|retrieval|fragment|metallic sample|material sample",
-        "contact_claims": r"abduct|occupants?|humanoid|alien beings?|extraterrestrial (?:beings?|visitors?)|contactee|little men|entity|entities",
+        "contact_claims": r"abduct|occupants?|humanoid|alien beings?|extraterrestrial (?:beings?|visitors?)|contactee|little men",
         "advanced_tech": r"propulsion|anti-?gravity|warp|metamaterial|metallic glass|spintronic|breakthrough|dird|advanced aerospace|exotic",
-        "government_program": r"project blue book|project sign|project grudge|aawsap|aatip|uap task force|aaro|robertson panel|condon|scientific advisory panel",
+        "government_program": r"project blue book|project sign|project grudge|aawsap|aatip|uap task force|robertson panel|condon committee|scientific advisory panel",
         "foreign_activity": r"soviet|ussr|russia|chinese|china|prc|iran|adversar|foreign (?:aircraft|technology|intelligence)",
         "radar_tracking": r"radar|tracked|track(?:ing)? data|sensor|flir|infrared",
         "biological": r"injur|burns?|radiation (?:sickness|exposure)|nausea|health effects|medical",
@@ -168,11 +168,18 @@ def classify_rules(
     location: str | None = None,
     incident_year: int | None = None,
     text_min_hits: int = 3,
+    description_shared: bool = False,
 ) -> RuleResult:
-    # "AARO Comment:" prefixes most recent publisher descriptions; it says who
-    # annotated the record, not that the record is about AARO
-    meta = re.sub(r"AARO Comment:?", "", f"{title}\n{description or ''}")
+    """``description_shared``: the publisher reuses this description for a
+    whole collection (e.g. every section of one FBI file), so it says little
+    about this particular record and only counts as body text."""
+    # AARO annotated nearly every recent description ("AARO Comment: ...",
+    # "AARO assessed ..."): that says who reviewed the record, not its subject
+    desc = re.sub(r"\bAARO\b( Comment:?)?", "", description or "")
+    meta = title if description_shared else f"{title}\n{desc}"
     body = (text or "")[:400_000]
+    if description_shared:
+        body = f"{desc}\n{body}"
     res = RuleResult()
     # long files mention many things in passing: require more hits the longer they are
     min_hits = max(text_min_hits, len(body) // 20_000)

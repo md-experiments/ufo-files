@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import timedelta
 from pathlib import Path
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 from .classify import classify_document
 from .config import get_settings
@@ -29,6 +29,10 @@ MAX_ATTEMPTS = 5
 STALE_RUN = timedelta(minutes=10)  # no heartbeat for this long = dead run
 HEARTBEAT_SECONDS = 60
 _local_lock = threading.Lock()
+
+# a publisher description reused by this many records describes a collection,
+# not the individual record
+SHARED_DESCRIPTION_MIN = 4
 
 PENDING = ("new", "downloaded", "extracted", "failed", "unavailable")
 
@@ -187,6 +191,10 @@ def _classify(doc_id: int) -> None:
             location=doc.incident_location,
             incident_year=doc.incident_year,
             incident_date_raw=doc.incident_date_raw,
+            description_shared=bool(doc.description) and (db.scalar(
+                select(func.count(Document.id)).where(
+                    Document.source == doc.source, Document.description == doc.description)
+            ) or 0) >= SHARED_DESCRIPTION_MIN,
         )
     c = classify_document(**args)
     with session_scope() as db:

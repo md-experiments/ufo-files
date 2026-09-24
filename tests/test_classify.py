@@ -50,3 +50,19 @@ def test_classify_without_llm_uses_description_as_summary(env):
                           media_type="pdf", agency="FBI", location=None, incident_year=None)
     assert c.classifier == "rules"
     assert c.summary and len(c.summary) <= 610
+
+
+def test_shared_collection_description_is_weak_evidence():
+    desc = "FBI file on flying discs, including reports near Oak Ridge and speculation about propulsion."
+    own = classify_rules("62-HQ-83894 Section 3", desc, "A farmer saw lights.", "pdf")
+    shared = classify_rules("62-HQ-83894 Section 3", desc, "A farmer saw lights.", "pdf", description_shared=True)
+    assert "nuclear" in own.tags["topic"]
+    assert "nuclear" not in shared.tags.get("topic", [])
+
+
+def test_aaro_attribution_and_entity_do_not_tag():
+    r = classify_rules("LLE-UAP-PR001, Unresolved UAP Report, Colorado, 2023",
+                       "A law enforcement entity reported lights. AARO assessed the case as unresolved.", None, "video")
+    assert "contact_claims" not in r.tags.get("topic", [])
+    assert "government_program" not in r.tags.get("topic", [])
+    assert "aaro" not in r.tags.get("program", [])

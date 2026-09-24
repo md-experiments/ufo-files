@@ -45,8 +45,10 @@ def classify_document(
     incident_year: int | None,
     incident_date_raw: str | None = None,
     use_llm: bool | None = None,
+    description_shared: bool = False,
 ) -> Classification:
-    rules = classify_rules(title, description, text, media_type, location, incident_year)
+    rules = classify_rules(title, description, text, media_type, location, incident_year,
+                           description_shared=description_shared)
     base = Classification(
         classifier="rules",
         summary=_first_sentences(description) if description else (_first_sentences(text) if text else None),
