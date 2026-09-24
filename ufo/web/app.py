@@ -22,6 +22,13 @@ from ..db import init_db, session_scope
 from . import queries as Q
 
 log = logging.getLogger(__name__)
+# uvicorn only configures its own loggers; surface the pipeline's progress in
+# the service logs (e.g. Railway's log view)
+if not logging.getLogger("ufo").handlers:
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    logging.getLogger("ufo").addHandler(_h)
+    logging.getLogger("ufo").setLevel(logging.INFO)
 HERE = Path(__file__).resolve().parent
 SEED = HERE.parent.parent / "data" / "seed" / "ufo-seed.json.gz"
 
