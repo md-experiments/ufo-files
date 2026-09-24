@@ -44,7 +44,7 @@ class Settings:
     # direct = official site only, wayback = Internet Archive only, auto = direct then wayback
     fetch_mode: str = field(default_factory=lambda: os.environ.get("FETCH_MODE", "auto"))
     http_timeout: int = field(default_factory=lambda: _int("HTTP_TIMEOUT", 120))
-    download_workers: int = field(default_factory=lambda: _int("DOWNLOAD_WORKERS", 4))
+    download_workers: int = field(default_factory=lambda: _int("DOWNLOAD_WORKERS", 3))
     # ask the Internet Archive to capture files we could not fetch from anywhere
     request_archive: bool = field(default_factory=lambda: _bool("REQUEST_ARCHIVE", True))
     keep_files: bool = field(default_factory=lambda: _bool("KEEP_FILES", True))

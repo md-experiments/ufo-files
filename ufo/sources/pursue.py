@@ -25,6 +25,8 @@ DVIDS_VIDEO = "https://www.dvidshub.net/video/{id}"
 
 MEDIA_TYPES = {"PDF": "pdf", "IMG": "image", "VID": "video", "AUD": "audio"}
 ID_RE = re.compile(r"^[A-Za-z]+-UAP-[A-Za-z]*\d+[A-Za-z]?$")
+# per-release zip archives of the documents (video bundles live on a CDN)
+BUNDLE_RE = re.compile(r"""href=["'](/medialink/ufo/[^"']+\.zip)["']""", re.IGNORECASE)
 CSV_LINK_RE = re.compile(r"""["'](/Portals/1/Interactive/2026/UFO/uap-data\.csv[^"']*)["']""")
 YEAR_RE = re.compile(r"\b(1[89]\d\d|20\d\d)\b")
 
@@ -134,12 +136,17 @@ class PursueSource(Source):
     label = "PURSUE (war.gov/UFO)"
     homepage = PAGE_URL
 
+    def __init__(self) -> None:
+        self.bundle_urls: list[str] = []
+
     def candidate_csv_urls(self) -> list[str]:
         """The CSV is cache-busted with a query string that changes per release;
-        read the current one off the landing page, then fall back to the bare URL."""
+        read the current one off the landing page, then fall back to the bare URL.
+        Also collects the per-release document bundles linked from the page."""
         urls: list[str] = []
         try:
             page = fetch(PAGE_URL).content.decode("utf-8", "replace")
+            self.bundle_urls = sorted({BASE + p for p in BUNDLE_RE.findall(page)})
             for path in CSV_LINK_RE.findall(page):
                 url = BASE + path.replace("&amp;", "&")
                 if url not in urls:

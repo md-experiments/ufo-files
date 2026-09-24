@@ -167,3 +167,28 @@ def test_dead_run_does_not_block(fake):
     with session_scope() as db:  # a live run (fresh heartbeat) does block
         db.add(PipelineRun(status="running", heartbeat_at=utcnow()))
     assert pipeline.run_pipeline() is None
+
+
+def test_missing_files_recovered_from_release_bundle(fake, monkeypatch):
+    import zipfile
+
+    from ufo.db import Document, session_scope
+
+    files, tmp = fake
+    pdf = make_pdf(tmp / "inner.pdf", ["Recovered from the bundle: a cigar-shaped object."])
+    bundle = tmp / "release_02_documents.zip"
+    with zipfile.ZipFile(bundle, "w") as zf:
+        zf.write(pdf, "release_02/documents/DOW-UAP-D017_Sandia.pdf")
+    bundle_url = "https://www.war.gov/medialink/ufo/052226/release_02/release_02_document_bundle.zip"
+    files[bundle_url] = bundle  # only the bundle is reachable, not the file itself
+    FakeSource.bundle_urls = [bundle_url]
+    FakeSource.records = [rec("D17", date(2026, 5, 22),
+                              url="https://www.war.gov/medialink/ufo/052226/release_02/documents/DOW-UAP-D017_Sandia.pdf")]
+    try:
+        pipeline.run_pipeline()
+    finally:
+        FakeSource.bundle_urls = []
+    with session_scope() as db:
+        d = db.scalar(select(Document))
+        assert d.status == "classified" and d.fetched_via == "bundle"
+        assert "cigar-shaped" in d.text

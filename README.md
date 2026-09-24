@@ -36,8 +36,10 @@ parses it, and diffs it against the database:
 blocks cloud and datacenter IP ranges. Every request tries the official URL
 first and falls back to the Internet Archive's byte-identical copy
 (`web.archive.org/web/<ts>id_/<url>`). Files that are in neither place are
-marked `unavailable` and retried on every run. The pipeline also asks the
-Archive to capture them, so they usually turn up later.
+marked `unavailable` and retried on every run. As a last resort, the pipeline
+downloads that release's official zip bundle (linked from the PURSUE page) and
+extracts the missing files by name. It also asks the Archive to capture
+anything missing, so those files usually turn up on a later run.
 
 **Extraction** (`ufo/extract.py`): PDFs are read page by page with PyMuPDF. A
 page with (almost) no embedded text, or a page that is mostly a scanned image
@@ -121,7 +123,7 @@ Keep one replica. The scheduler runs inside the web process.
 | `DATABASE_URL` | SQLite in `DATA_DIR` | Postgres URL (Railway style `postgres://` is accepted) |
 | `FETCH_MODE` | `auto` | `auto` (direct, then Wayback), `direct`, or `wayback` |
 | `REQUEST_ARCHIVE` | `true` | ask the Internet Archive to capture files we cannot reach |
-| `DOWNLOAD_WORKERS` | `4` | parallel downloads |
+| `DOWNLOAD_WORKERS` | `3` | parallel downloads (the Internet Archive resets connections under heavier load) |
 | `KEEP_FILES` | `true` | keep PDFs after extraction (needed for `reprocess extract`) |
 | `OCR_ENABLED` | `true` | OCR scanned pages |
 | `OCR_MODE` | `auto` | `auto` = only pages without usable text; `always` = OCR every page, keep the better text |

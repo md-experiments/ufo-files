@@ -9,10 +9,13 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+import shutil
 import threading
+import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import timedelta
 from pathlib import Path
+from urllib.parse import unquote
 
 from sqlalchemy import delete, func, select
 
@@ -143,6 +146,11 @@ def _download(doc_id: int) -> tuple[int, str | None]:
             doc.status, doc.error = "unavailable", err[:2000]
             doc.attempts += 1
         return doc_id, err
+    _mark_downloaded(doc_id, path, res.via)
+    return doc_id, None
+
+
+def _mark_downloaded(doc_id: int, path: Path, via: str) -> None:
     digest = hashlib.sha256()
     with path.open("rb") as fh:
         for chunk in iter(lambda: fh.read(1 << 20), b""):
@@ -151,11 +159,10 @@ def _download(doc_id: int) -> tuple[int, str | None]:
         doc = db.get(Document, doc_id)
         doc.status = "downloaded"
         doc.error = None
-        doc.fetched_via = res.via
+        doc.fetched_via = via
         doc.file_path = str(path)
         doc.file_size = path.stat().st_size
         doc.file_sha256 = digest.hexdigest()
-    return doc_id, None
 
 
 def _extract(doc_id: int) -> None:
@@ -220,8 +227,16 @@ def _classify(doc_id: int) -> None:
         doc.processed_at = utcnow()
 
 
-def process_pending(rlog: RunLog, limit: int | None = None, record_ids: list[str] | None = None) -> tuple[int, int]:
-    """Download, extract and classify every record that needs it."""
+def process_pending(
+    rlog: RunLog,
+    limit: int | None = None,
+    record_ids: list[str] | None = None,
+    bundles: list[str] | None = None,
+) -> tuple[int, int]:
+    """Download, extract and classify every record that needs it.
+
+    ``bundles`` are release zip archives to fall back on for files that could
+    not be downloaded individually."""
     s = get_settings()
     with session_scope() as db:
         q = select(Document.id, Document.media_type, Document.status, Document.file_url).where(
@@ -286,8 +301,70 @@ def process_pending(rlog: RunLog, limit: int | None = None, record_ids: list[str
                 rlog("download failed for doc %d: %s", doc_id, err[:300])
             else:
                 finish(doc_id)
+    missing = [i for i in failed if i in needs_file]
+    if missing and bundles:
+        for doc_id in _from_bundles(missing, bundles, rlog):
+            failed.discard(doc_id)
+            finish(doc_id)
     rlog("processed %d, failed %d", ok, len(failed))
     return ok, len(failed)
+
+
+_RELEASE_NO = re.compile(r"release[_-]?0*(\d+)", re.IGNORECASE)
+
+
+def _release_no(url: str) -> int | None:
+    m = _RELEASE_NO.search(url or "")
+    return int(m.group(1)) if m else None
+
+
+def _member_key(name: str) -> str:
+    return unquote(name.rsplit("/", 1)[-1]).lower()
+
+
+def _from_bundles(doc_ids: list[int], bundles: list[str], rlog: RunLog) -> list[int]:
+    """Extract files we could not download individually from their release's
+    zip bundle. Returns the ids that were recovered."""
+    with session_scope() as db:
+        docs = {d.id: (d.file_url, _file_path(d)) for d in db.scalars(select(Document).where(Document.id.in_(doc_ids)))}
+    by_release: dict[int, list[int]] = {}
+    for doc_id, (url, _) in docs.items():
+        n = _release_no(url)
+        if n is not None:
+            by_release.setdefault(n, []).append(doc_id)
+    recovered: list[int] = []
+    bundle_dir = get_settings().data_dir / "bundles"
+    for n, ids in sorted(by_release.items()):
+        for bundle_url in (b for b in bundles if _release_no(b) == n):
+            zpath = bundle_dir / Path(unquote(bundle_url)).name
+            try:
+                if not zpath.exists():
+                    rlog("fetching release %d bundle for %d missing files: %s", n, len(ids), bundle_url)
+                    download(bundle_url, zpath)
+                with zipfile.ZipFile(zpath) as zf:
+                    members = {_member_key(m): m for m in zf.namelist() if not m.endswith("/")}
+                    for doc_id in list(ids):
+                        url, dest = docs[doc_id]
+                        member = members.get(_member_key(url))
+                        if not member:
+                            continue
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        with zf.open(member) as src, dest.open("wb") as out:
+                            shutil.copyfileobj(src, out, 1 << 20)
+                        _mark_downloaded(doc_id, dest, "bundle")
+                        recovered.append(doc_id)
+                        ids.remove(doc_id)
+            except (FetchError, zipfile.BadZipFile, OSError) as exc:
+                rlog("bundle %s unusable: %s", bundle_url, str(exc)[:300])
+                zpath.unlink(missing_ok=True)
+                continue
+            if not ids:
+                break
+    if recovered:
+        rlog("recovered %d files from release bundles", len(recovered))
+    if bundle_dir.exists():  # bundles are large; keep only what's needed per run
+        shutil.rmtree(bundle_dir, ignore_errors=True)
+    return recovered
 
 
 def reset_for_reprocess(stage: str, record_ids: list[str] | None = None) -> int:
@@ -355,15 +432,17 @@ def run_pipeline(trigger: str = "manual", sources: list[str] | None = None, limi
         status = "ok"
         processed = failed = 0
         try:
+            bundles: list[str] = []
             for source in get_sources(sources):
                 try:
                     a, b, c = sync_source(source, rlog)
+                    bundles += getattr(source, "bundle_urls", [])
                     seen, new, updated = seen + a, new + b, updated + c
                 except Exception as exc:
                     status = "error"
                     rlog("source %s failed: %s", source.name, exc)
                     log.exception("source %s failed", source.name)
-            processed, failed = process_pending(rlog, limit=limit)
+            processed, failed = process_pending(rlog, limit=limit, bundles=bundles)
         except Exception as exc:
             status = "error"
             rlog("pipeline error: %s", exc)
