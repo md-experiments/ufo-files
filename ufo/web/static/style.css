@@ -265,6 +265,12 @@ pre.log { font-family: var(--mono); font-size: .75rem; white-space: pre-wrap; ov
 .chart { display: block; width: 100%; height: auto; font-family: var(--sans); }
 .chart.timeline, .chart.strip { min-width: 680px; }
 .chart.casemap { min-width: 640px; }
+.chart.narrow { min-width: 0; }
+.only-narrow { display: none; }
+@media (max-width: 640px) {
+  .only-wide { display: none; }
+  .only-narrow { display: block !important; }
+}
 .chart .bar { fill: var(--series-1); }
 .chart .bar.hot { fill: var(--hot); }
 .chart a:hover .bar, .chart a:focus .bar { opacity: .8; }
@@ -288,7 +294,15 @@ pre.log { font-family: var(--mono); font-size: .75rem; white-space: pre-wrap; ov
 .q6 { fill: var(--seq-6); background: var(--seq-6); }
 .chart.tilemap { max-width: 560px; margin: 8px auto 0; }
 .chart .state-label { fill: var(--text-primary); font-size: 13px; font-weight: 600; pointer-events: none; }
-.chart .state-label.on-dark { fill: #fff; }
+/* label contrast follows the tile level; the dark ramp runs light-on-top */
+.chart .state-label.l4, .chart .state-label.l5, .chart .state-label.l6 { fill: #fff; }
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) .chart .state-label { fill: #fff; }
+  :root:where(:not([data-theme="light"])) .chart .state-label.l5,
+  :root:where(:not([data-theme="light"])) .chart .state-label.l6 { fill: #0b0b0b; }
+}
+:root[data-theme="dark"] .chart .state-label { fill: #fff; }
+:root[data-theme="dark"] .chart .state-label.l5, :root[data-theme="dark"] .chart .state-label.l6 { fill: #0b0b0b; }
 .chart a:hover .state { stroke: var(--text-primary); stroke-width: 2; }
 /* case map */
 .chart .pt { fill: var(--text-muted); fill-opacity: .35; }
@@ -296,6 +310,7 @@ pre.log { font-family: var(--mono); font-size: .75rem; white-space: pre-wrap; ov
 .chart .pt:hover { fill-opacity: 1; }
 .casemap.focus .pt { fill-opacity: .12; }
 .casemap.focus .pt.hl { fill: var(--hot); fill-opacity: 1; r: 7; }
+.casemap.narrow.focus .pt.hl { r: 4.5; }
 .chart .badge circle { fill: var(--surface-1); stroke: var(--text-primary); stroke-width: 1.5; cursor: pointer; }
 .chart .badge text { fill: var(--text-primary); font-size: 12px; font-weight: 700; pointer-events: none; }
 .chart .badge.hl circle { fill: var(--hot); stroke: var(--hot); }

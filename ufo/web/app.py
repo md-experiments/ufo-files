@@ -85,6 +85,33 @@ app = FastAPI(title="UFO Files", version=__version__, lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
 
 
+def _asset_version() -> str:
+    """Content hash of the static assets: a new deploy with changed CSS gets a
+    new URL, so browsers (phones especially) never keep a stale stylesheet."""
+    import hashlib
+
+    h = hashlib.sha256()
+    for f in sorted((HERE / "static").glob("*")):
+        if f.is_file():
+            h.update(f.read_bytes())
+    return h.hexdigest()[:10]
+
+
+ASSET_VERSION = _asset_version()
+
+
+@app.middleware("http")
+async def _cache_headers(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/static/"):
+        # versioned URLs can be cached long; unversioned ones must revalidate
+        versioned = request.query_params.get("v") == ASSET_VERSION
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable" if versioned else "no-cache"
+    elif "text/html" in response.headers.get("content-type", ""):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 # ---------------------------------------------------------------------------
 # Template helpers
 # ---------------------------------------------------------------------------
@@ -134,7 +161,7 @@ templates.env.filters["ago"] = _ago
 templates.env.filters["d"] = _date
 templates.env.globals.update(
     label=label, FACET_LABELS=FACET_LABELS, FACETS=FACETS, MEDIA_LABELS=Q.MEDIA_LABELS,
-    MEDIA_ORDER=Q.MEDIA_ORDER, highlight=_highlight, url=_url, version=__version__,
+    MEDIA_ORDER=Q.MEDIA_ORDER, highlight=_highlight, url=_url, version=__version__, asset_version=ASSET_VERSION,
 )
 
 

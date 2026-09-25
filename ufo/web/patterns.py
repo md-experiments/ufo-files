@@ -68,6 +68,7 @@ def patterns_context(db: Session) -> dict:
             links.append({**l, "da": titles[l["a"]], "db": titles[l["b"]],
                           "shared_labels": [tag_label(t) for t in l["shared"]]})
 
+    map_titles = {i: f'{t["record_id"]}: {t["title"]}' for i, t in titles.items()}
     cooc = r["cooccurrence"]
     top_pairs = sorted(cooc, key=lambda p: (-p["lift"]))[:14]
     max_lift = max((p["lift"] for p in top_pairs), default=1)
@@ -80,7 +81,8 @@ def patterns_context(db: Session) -> dict:
         "ready": True,
         "computed_at": r.get("computed_at"),
         "overview": r["overview"],
-        "timeline_svg": charts.timeline(tl["years"], tl["waves"]),
+        "timeline_svg": charts.responsive(charts.timeline(tl["years"], tl["waves"]),
+                                          charts.timeline(tl["years"], tl["waves"], narrow=True)),
         "waves": tl["waves"],
         "features": features,
         "groups": groups,
@@ -94,7 +96,9 @@ def patterns_context(db: Session) -> dict:
         "top_places": r["places"]["top"],
         "place_decades": r["places"]["decades"],
         "clusters": clusters,
-        "case_map": charts.case_map(r["map"], clusters, {i: f'{t["record_id"]}: {t["title"]}' for i, t in titles.items()}),
+        "case_map": charts.responsive(
+            charts.case_map(r["map"], clusters, map_titles),
+            charts.case_map(r["map"], clusters, map_titles, narrow=True)),
         "links": links,
         "rare": rare,
     }
@@ -169,6 +173,7 @@ def releases_visuals(db: Session) -> dict:
     for d in docs:
         by_rel[d.release_id].append(d)
     strip = [{"label": r.label.split(" · ")[0] + " · " + r.release_date.strftime("%b %-d"),
+              "short": f"R{r.number}" if r.number else r.release_date.strftime("%b"),
               "docs": [{"id": d.id, "title": d.title, "year": d.incident_year} for d in by_rel[r.id]]}
              for r in rels]
 
@@ -197,4 +202,4 @@ def releases_visuals(db: Session) -> dict:
         per_row=False, row_link="/documents?tag=topic:{key}",
     )
     legend = [(a, agency_cls[a]) for a in top_agencies] + [("Other agencies", "s-other")]
-    return {"strip": charts.strip_plot(strip), "stacks": stacks, "agency_legend": legend, "topic_heat": heat}
+    return {"strip": charts.responsive(charts.strip_plot(strip), charts.strip_plot(strip, narrow=True)), "stacks": stacks, "agency_legend": legend, "topic_heat": heat}

@@ -137,7 +137,7 @@
 
 <section class="section card" id="clusters">
   <h2>Clusters of similar cases <small>map of all {{ p.clusters | map(attribute='size') | sum }} clustered records</small></h2>
-  <p class="secondary small">Every record is a dot, placed so that records describing similar things sit close together: similar wording plus shared shapes, details, sensors, witnesses, places and decades. Numbered circles mark clusters. Hover a cluster card to highlight its records, or click a dot to open it.</p>
+  <p class="secondary small">Every record is a dot, placed so that records describing similar things sit close together: similar wording plus shared shapes, details, sensors, witnesses, places and decades. Numbered circles mark clusters. Hover or tap a cluster card to highlight its records, or click a dot to open it.</p>
   <div class="scroll-x">{{ p.case_map }}</div>
 </section>
 <div class="cluster-grid">
@@ -184,10 +184,10 @@
 <script>
 // highlight a cluster's records on the map when its card or badge is hovered
 (function () {
-  var svg = document.querySelector('.casemap');
-  if (!svg) return;
-  function on(c) { svg.classList.add('focus'); svg.querySelectorAll('[data-c="' + c + '"]').forEach(function (el) { el.classList.add('hl'); }); }
-  function off() { svg.classList.remove('focus'); svg.querySelectorAll('.hl').forEach(function (el) { el.classList.remove('hl'); }); }
+  var maps = document.querySelectorAll('.casemap');
+  if (!maps.length) return;
+  function on(c) { maps.forEach(function (svg) { svg.classList.add('focus'); svg.querySelectorAll('[data-c="' + c + '"]').forEach(function (el) { el.classList.add('hl'); }); }); }
+  function off() { maps.forEach(function (svg) { svg.classList.remove('focus'); svg.querySelectorAll('.hl').forEach(function (el) { el.classList.remove('hl'); }); }); }
   document.querySelectorAll('.cluster[data-c], .casemap .badge').forEach(function (el) {
     var c = el.getAttribute('data-c');
     el.addEventListener('mouseenter', function () { on(c); });
