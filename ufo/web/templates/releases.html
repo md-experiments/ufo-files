@@ -3,7 +3,30 @@
 {% block title %}Releases · UFO Files{% endblock %}
 {% block content %}
 <h1>Releases</h1>
-<p class="secondary">Each tranche published so far, newest first, with what it contains.</p>
+<p class="secondary">What each tranche contained: the eras its incidents come from, the agencies behind it, and its main topics. Details for each release follow below, newest first.</p>
+
+<section class="card section">
+  <h2>When each release's incidents happened <small>one dot per record</small></h2>
+  <p class="secondary small">Each dot is a record placed at its incident year. Early releases reached back to 1940s flying-disc files, while others were almost entirely recent military reports. Hover a dot for the record, click to open it.</p>
+  <div class="scroll-x">{{ visuals.strip }}</div>
+</section>
+
+<section class="section grid cols-2">
+  <div class="card">
+    <h2>Who released what <small>share of each release by agency</small></h2>
+    <div class="legend">{% for a, cls in visuals.agency_legend %}<span><i class="{{ cls }}"></i>{{ a }}</span>{% endfor %}</div>
+    <div class="stack-rows">
+      {% for st in visuals.stacks %}
+      <div class="stack-row"><a class="stack-name small" href="{{ url('/documents', release=st.release.id) }}">{{ st.release.label }}</a>{{ st.bar }}<span class="hbar-value">{{ st.total }}</span></div>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="card">
+    <h2>What each release was about <small>share of records per topic</small></h2>
+    {{ visuals.topic_heat }}
+    <div class="ramp-legend small muted"><span>0%</span>{% for q in range(1, 7) %}<i class="q{{ q }}"></i>{% endfor %}<span>highest share</span></div>
+  </div>
+</section>
 {% for r in releases %}
 <section class="card section release-card">
   <div>

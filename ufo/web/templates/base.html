@@ -19,11 +19,12 @@
       UFO FILES
     </a>
     <nav class="nav" aria-label="Main">
-      {% set p = request.url.path %}
-      <a href="/" class="{{ 'active' if p == '/' }}">Overview</a>
-      <a href="/releases" class="{{ 'active' if p.startswith('/releases') }}">Releases</a>
-      <a href="/documents" class="{{ 'active' if p.startswith('/documents') }}">Browse</a>
-      <a href="/pipeline" class="{{ 'active' if p.startswith('/pipeline') }}">Pipeline</a>
+      {% set path = request.url.path %}
+      <a href="/" class="{{ 'active' if path == '/' }}">Overview</a>
+      <a href="/releases" class="{{ 'active' if path.startswith('/releases') }}">Releases</a>
+      <a href="/patterns" class="{{ 'active' if path.startswith('/patterns') }}">Patterns</a>
+      <a href="/documents" class="{{ 'active' if path.startswith('/documents') }}">Browse</a>
+      <a href="/pipeline" class="{{ 'active' if path.startswith('/pipeline') }}">Pipeline</a>
     </nav>
     <form class="header-search" action="/documents" role="search">
       <input type="search" name="q" placeholder="Search all files…" aria-label="Search all files" value="{{ q if q is defined else '' }}">

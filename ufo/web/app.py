@@ -19,6 +19,7 @@ from .. import __version__
 from ..classify.taxonomy import FACET_LABELS, FACETS, label
 from ..config import get_settings
 from ..db import init_db, session_scope
+from . import patterns as P
 from . import queries as Q
 
 log = logging.getLogger(__name__)
@@ -62,7 +63,7 @@ def start_background_jobs() -> None:
     try:
         from ..seed import import_seed
 
-        n = import_seed(SEED)
+        n = import_seed(SEED) if s.seed_on_startup else 0
         if n:
             log.info("seeded database with %d records", n)
     except Exception:
@@ -176,6 +177,8 @@ def index(request: Request):
             eras=Q.era_counts(db),
             agencies=[{"value": a, "label": a, "n": n} for a, n in Q.agencies(db)],
             locations=Q.top_locations(db),
+            visuals=P.releases_visuals(db),
+            patterns=P.patterns_context(db),
         )
         return render(request, "index.html", **ctx)
 
@@ -206,7 +209,8 @@ def document(request: Request, doc_id: int):
         doc = Q.document(db, doc_id)
         if not doc:
             raise HTTPException(404, "document not found")
-        return render(request, "document.html", doc=doc, groups=Q.grouped_tags(doc), related=Q.related(db, doc))
+        return render(request, "document.html", doc=doc, groups=Q.grouped_tags(doc), related=Q.related(db, doc),
+                      patterns=P.document_patterns(db, doc))
 
 
 @app.get("/documents/{doc_id}/text.txt", response_class=PlainTextResponse)
@@ -233,7 +237,34 @@ def releases_page(request: Request):
                 "agencies": Q.facet_counts(db, "agency", r["id"], limit=6),
                 "highlights": Q.highlights(db, r["id"], limit=5),
             })
-        return render(request, "releases.html", releases=detail)
+        return render(request, "releases.html", releases=detail, visuals=P.releases_visuals(db))
+
+
+@app.get("/patterns", response_class=HTMLResponse)
+def patterns_page(request: Request):
+    with session_scope() as db:
+        return render(request, "patterns.html", p=P.patterns_context(db))
+
+
+@app.get("/patterns/evidence", response_class=HTMLResponse)
+def patterns_evidence(request: Request, feature: str | None = None, year: int | None = None,
+                      place: str | None = None):
+    if not (feature or year or place):
+        raise HTTPException(400, "choose a feature, year or place")
+    with session_scope() as db:
+        return render(request, "evidence.html", ev=P.evidence(db, feature, year, place))
+
+
+@app.get("/api/patterns")
+def api_patterns():
+    from ..analyze import load_results
+
+    with session_scope() as db:
+        r = load_results(db)
+        r.pop("similar", None)
+        if "computed_at" in r:
+            r["computed_at"] = r["computed_at"].isoformat()
+        return r
 
 
 @app.get("/pipeline", response_class=HTMLResponse)

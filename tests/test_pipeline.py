@@ -192,3 +192,45 @@ def test_missing_files_recovered_from_release_bundle(fake, monkeypatch):
         d = db.scalar(select(Document))
         assert d.status == "classified" and d.fetched_via == "bundle"
         assert "cigar-shaped" in d.text
+
+
+def test_analysis_stage_and_patterns_pages(fake):
+    from fastapi.testclient import TestClient
+
+    from ufo.analyze import load_results
+    from ufo.db import Observation, session_scope
+
+    files, tmp = fake
+    recs = []
+    wave = ("On July {d}, 1947 witnesses observed a silver disc hovering silently over Roswell, New Mexico. "
+            "The object made no sound, had no wings, and the observers saw it disappear at tremendous speed. "
+            "Another object appeared in the sky at high altitude.")
+    for i in range(12):
+        url = f"https://example.gov/W{i}.pdf"
+        import textwrap
+
+        files[url] = make_pdf(tmp / f"w{i}.pdf", ["\n".join(textwrap.wrap(wave.format(d=i + 1), 70))])
+        recs.append(rec(f"W{i}", date(2026, 5, 8), url=url, desc=wave.format(d=i + 1)))
+    for i in range(3):
+        recs.append(rec(f"M{i}", date(2026, 5, 22), media="video", url=None,
+                        desc=f"An infrared sensor recorded an orb over the Arabian Gulf in 2023 (clip {i})."))
+    FakeSource.records = recs
+    pipeline.run_pipeline()
+
+    with session_scope() as db:
+        r = load_results(db)
+        assert r["overview"]["observations"] > 0
+        assert _count(Observation, feature="silent") >= 1
+        years = {y["year"]: y["count"] for y in r["timeline"]["years"]}
+        assert years.get(1947, 0) > 0
+        assert r["map"] and "similar" in r
+
+    from ufo.web.app import app
+
+    with TestClient(app) as client:
+        for path in ["/patterns", "/patterns/evidence?feature=silent", "/patterns/evidence?year=1947",
+                     "/patterns/evidence?place=US-NM", "/api/patterns", "/releases", "/", "/documents/1"]:
+            resp = client.get(path)
+            assert resp.status_code == 200, (path, resp.text[-800:])
+        assert "Patterns in the UFO files" in client.get("/patterns").text
+        assert client.get("/patterns/evidence").status_code == 400

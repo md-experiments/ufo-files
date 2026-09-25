@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% block title %}Patterns · UFO Files{% endblock %}
+{% block content %}
+<section class="hero">
+  <div>
+    <div class="eyebrow">Connections across the files</div>
+    <h1>Patterns in the UFO files</h1>
+    <p>Every page that reads like a sighting report is scanned for concrete, recurring details: glows and halos, humming or total silence, smells, hovering, right-angle turns, engines stalling, marks left on the ground. Dates and places on those pages show when reports bunched into waves. Records that describe similar things are linked across agencies and decades. Everything below updates when new files are released.</p>
+  </div>
+  <div class="status-line">
+    {% if p.ready %}<span>Computed {{ p.computed_at | ago }} from the extracted text. Patterns are found automatically: open the evidence before drawing conclusions.</span>{% endif %}
+  </div>
+</section>
+
+{% if not p.ready %}
+<div class="empty">The analysis runs after the pipeline has processed records. Check back shortly.</div>
+{% else %}
+<section class="tiles" aria-label="Analysis totals">
+  <div class="tile"><div class="v">{{ p.overview.sighting_units | n }}</div><div class="k">Sighting pages analysed</div><div class="s">pages that read like reports</div></div>
+  <div class="tile"><div class="v">{{ p.overview.observations | n }}</div><div class="k">Details found</div><div class="s">in {{ p.overview.records_with_observations }} records, each with its quote</div></div>
+  <div class="tile"><div class="v">{{ p.overview.waves }}</div><div class="k">Waves</div><div class="s">periods with unusually many reports</div></div>
+  <div class="tile"><div class="v">{{ p.overview.clusters }}</div><div class="k">Clusters</div><div class="s">groups of similar cases</div></div>
+  <div class="tile"><div class="v">{{ p.links | length }}</div><div class="k">Cross-links</div><div class="s">similar cases across agencies or decades</div></div>
+</section>
+
+<nav class="toc small" aria-label="On this page">
+  <a href="#waves">Waves</a><a href="#details">Recurring details</a><a href="#decades">By decade</a><a href="#together">Reported together</a><a href="#rare">Rare details</a><a href="#where">Where</a><a href="#clusters">Clusters</a><a href="#links">Cross-links</a>
+</nav>
+
+<section class="section card" id="waves">
+  <h2>When reports bunch up <small>sighting pages per year</small></h2>
+  <p class="secondary small">Each bar counts sighting pages mentioning a date in that year. A page that mentions several months is split between them, and modern records count at their published incident date. <span class="legend-inline"><i class="sw hot"></i>Shaded years are <strong>waves</strong>: at least 2.5× the level of the surrounding two decades.</span> Click a bar to read the pages.</p>
+  <div class="scroll-x">{{ p.timeline_svg }}</div>
+</section>
+
+<div class="wave-grid">
+  {% for w in p.waves %}
+  <article class="card wave">
+    <div class="eyebrow">Wave {{ loop.index }}</div>
+    <h3>{% if w.start == w.end %}{{ w.start }}{% else %}{{ w.start }}–{{ w.end }}{% endif %}
+      {% if w.peak_month %}<span class="muted small">peak {{ ['January','February','March','April','May','June','July','August','September','October','November','December'][w.peak_month - 1] }} {{ w.peak_year }}</span>{% endif %}</h3>
+    <p class="wave-ratio"><strong>{{ w.ratio }}×</strong> the usual level · {{ w.pages }} pages in {{ w.records }} records</p>
+    {{ w.months_svg }}
+    {% if w.distinctive %}
+    <div class="mini-label">More often than usual</div>
+    <div class="chips">{% for f in w.distinctive %}<a class="chip strong" href="{{ url('/patterns/evidence', feature=f.key, year=w.peak_year) }}" title="{{ f.count }} pages, {{ f.lift }}× the usual rate">{{ f.label }} <span class="muted">{{ f.lift }}×</span></a>{% endfor %}</div>
+    {% endif %}
+    {% if w.features %}
+    <div class="mini-label">Most reported</div>
+    <div class="chips">{% for f in w.features %}<a class="chip" href="{{ url('/patterns/evidence', feature=f.key, year=w.peak_year) }}">{{ f.label }} <span class="muted">{{ f.count }}</span></a>{% endfor %}</div>
+    {% endif %}
+    {% if w.places %}
+    <div class="mini-label">Places mentioned</div>
+    <div class="chips">{% for pl in w.places %}<a class="chip" href="{{ url('/patterns/evidence', place=pl.key, year=w.peak_year) }}">{{ pl.label }} <span class="muted">{{ pl.count }}</span></a>{% endfor %}</div>
+    {% endif %}
+    <a class="small" href="{{ url('/patterns/evidence', year=w.peak_year) }}">Read the {{ w.peak_year }} pages →</a>
+  </article>
+  {% endfor %}
+</div>
+
+<section class="section" id="details">
+  <h2>Recurring details</h2>
+  <p class="secondary small">How many records report each detail. The small columns show the decades it was reported in, from {{ p.decades[0] if p.decades }} to {{ p.decades[-1] if p.decades }}. Statements like "no sound" and empty form fields ("Odor detected: none") are excluded. Click a detail to read every quote.</p>
+  <div class="detail-grid">
+    {% for g, glabel, feats in p.groups %}{% for f in feats %}
+    <a class="detail" href="{{ url('/patterns/evidence', feature=f.key) }}" title="{{ f.description }}">
+      <span class="detail-group">{{ glabel }}</span>
+      <span class="detail-head"><span class="detail-name">{{ f.label }}</span><span class="detail-n" title="records">{{ f.records }}</span></span>
+      <span class="detail-foot">{{ p.sparks[f.key] }}</span>
+      <span class="detail-meta">{{ f.records }} record{{ 's' if f.records != 1 }} · {{ f.pages }} page{{ 's' if f.pages != 1 }}{% if f.first_year %} · {{ f.first_year }}{% if f.last_year != f.first_year %}–{{ f.last_year }}{% endif %}{% endif %}</span>
+    </a>
+    {% endfor %}{% endfor %}
+  </div>
+</section>
+
+<section class="section grid cols-2">
+  <div class="card" id="decades">
+    <h2>Signature of each decade <small>share of that decade's pages</small></h2>
+    <p class="secondary small">Darker means a larger share of the decade's sighting pages mention the detail. Each row is scaled to its own peak, so you can see when each detail was most reported.</p>
+    {{ p.heatmap }}
+    <div class="ramp-legend small muted"><span>less</span>{% for q in range(1, 7) %}<i class="q{{ q }}"></i>{% endfor %}<span>more</span></div>
+  </div>
+  <div class="card" id="together">
+    <h2>Details reported together <small>on the same page</small></h2>
+    <p class="secondary small">Pairs that appear together more often than chance would predict. "2×" means twice as often as if the two were unrelated. Only pairs seen on at least 4 pages are shown.</p>
+    <ul class="pairs">
+      {% for pr in p.pairs %}
+      <li><a class="pair" href="{{ url('/patterns/evidence', feature=pr.a) }}" data-tip="{{ pr.count }} pages mention both">
+        <span class="pair-names">{{ pr.a_label }} <span class="muted">+</span> {{ pr.b_label }}</span>
+        <span class="hbar-track"><span class="hbar-fill" style="width: {{ (100 * pr.lift / p.max_lift) | round(1) }}%"></span></span>
+        <span class="hbar-value">{{ pr.lift }}×</span></a></li>
+      {% endfor %}
+    </ul>
+  </div>
+</section>
+
+{% if p.rare %}
+<section class="section" id="rare">
+  <h2>Rare details worth reading</h2>
+  <p class="secondary small">Details that appear in only a handful of records. These tend to be the most specific accounts, so each one is quoted here.</p>
+  <div class="grid cols-2">
+    {% for f in p.rare %}
+    <div class="card">
+      <h3>{{ f.label }} <span class="muted small">{{ f.records }} record{{ 's' if f.records != 1 }}</span></h3>
+      <ul class="quotes">
+        {% for ex in f.examples[:3] %}
+        <li><blockquote>{{ ex.snippet }}</blockquote>
+          <a class="small" href="/documents/{{ ex.doc_id }}{% if ex.page %}#p{{ ex.page }}{% endif %}">{{ ex.record_id }}{% if ex.page %}, page {{ ex.page }}{% endif %}</a>{% if ex.year %} <span class="muted small">· {{ ex.year }}</span>{% endif %}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section class="section grid cols-2" id="where">
+  <div class="card">
+    <h2>Where sighting pages point <small>U.S. states</small></h2>
+    <p class="secondary small">Sighting pages mentioning each state, or a well-known place in it (Roswell, Mount Rainier, Wright-Patterson…). Washington, D.C. counts only in sighting context, not on FBI letterheads.</p>
+    {{ p.tilemap }}
+    <div class="ramp-legend small muted"><span>fewer</span>{% for q in range(1, 7) %}<i class="q{{ q }}"></i>{% endfor %}<span>more</span></div>
+  </div>
+  <div class="card">
+    <h2>Outside the U.S.</h2>
+    {% set mx = (p.world | map(attribute='count') | max) if p.world else 1 %}
+    <ul class="hbars">
+      {% for w in p.world %}
+      <li><a class="hbar" href="{{ url('/patterns/evidence', place=w.key) }}" data-tip="{{ w.label }}: {{ w.count }} pages">
+        <span class="hbar-label">{{ w.label }}</span>
+        <span class="hbar-track"><span class="hbar-fill" style="width: {{ (100 * w.count / mx) | round(1) }}%"></span></span>
+        <span class="hbar-value">{{ w.count }}</span></a></li>
+      {% endfor %}
+    </ul>
+  </div>
+</section>
+
+<section class="section card" id="clusters">
+  <h2>Clusters of similar cases <small>map of all {{ p.clusters | map(attribute='size') | sum }} clustered records</small></h2>
+  <p class="secondary small">Every record is a dot, placed so that records describing similar things sit close together: similar wording plus shared shapes, details, sensors, witnesses, places and decades. Numbered circles mark clusters. Hover a cluster card to highlight its records, or click a dot to open it.</p>
+  <div class="scroll-x">{{ p.case_map }}</div>
+</section>
+<div class="cluster-grid">
+  {% for c in p.clusters[:14] %}
+  <article class="card cluster" data-c="{{ c.id }}" tabindex="0">
+    <div class="cluster-head"><span class="cluster-no">{{ c.id }}</span>
+      <div><h3>{{ c.name }}</h3>
+        <div class="muted small">{{ c.size }} records{% if c.years %} · {{ c.years[0] }}{% if c.years[1] != c.years[0] %}–{{ c.years[1] }}{% endif %}{% endif %}
+          {% if c.agency_count > 1 %} · <strong class="bridge">{{ c.agency_count }} agencies</strong>{% endif %}
+          {% if c.span_years >= 15 %} · <strong class="bridge">spans {{ c.span_years }} years</strong>{% endif %}</div></div></div>
+    <div class="chips">{% for cm in c.common[:6] %}<span class="chip" title="{{ (cm.share * 100) | round | int }}% of the cluster">{{ cm.label }} <span class="muted">{{ (cm.share * 100) | round | int }}%</span></span>{% endfor %}</div>
+    <ul class="member-list small">
+      {% for d in c.docs[:5] %}<li><a href="/documents/{{ d.id }}">{{ d.title | truncate(70) }}</a></li>{% endfor %}
+      {% if c.docs | length > 5 %}<li class="muted">and {{ c.docs | length - 5 }} more</li>{% endif %}
+    </ul>
+  </article>
+  {% endfor %}
+</div>
+
+{% if p.links %}
+<section class="section" id="links">
+  <h2>Connections across agencies and decades</h2>
+  <p class="secondary small">Pairs of records from different agencies, or at least 15 years apart, that describe strikingly similar things. Records the publisher already paired, or files from the same series, are left out.</p>
+  <div class="link-list">
+    {% for l in p.links[:24] %}
+    <article class="card linkcard">
+      <div class="link-pair">
+        <a href="/documents/{{ l.da.id }}"><span class="rid">{{ l.da.record_id | truncate(28) }}</span><span class="link-title">{{ l.da.title | truncate(80) }}</span><span class="muted small">{{ l.da.agency or '' }}{% if l.da.year %} · {{ l.da.year }}{% endif %}</span></a>
+        <span class="link-mid" aria-hidden="true">⟷</span>
+        <a href="/documents/{{ l.db.id }}"><span class="rid">{{ l.db.record_id | truncate(28) }}</span><span class="link-title">{{ l.db.title | truncate(80) }}</span><span class="muted small">{{ l.db.agency or '' }}{% if l.db.year %} · {{ l.db.year }}{% endif %}</span></a>
+      </div>
+      <div class="chips">
+        {% if l.cross_agency %}<span class="chip strong">different agencies</span>{% endif %}
+        {% if l.years_apart >= 15 %}<span class="chip strong">{{ l.years_apart }} years apart</span>{% endif %}
+        {% for s in l.shared_labels[:6] %}<span class="chip">{{ s }}</span>{% endfor %}
+        <span class="muted small">similarity {{ (l.score * 100) | round | int }}%</span>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<script>
+// highlight a cluster's records on the map when its card or badge is hovered
+(function () {
+  var svg = document.querySelector('.casemap');
+  if (!svg) return;
+  function on(c) { svg.classList.add('focus'); svg.querySelectorAll('[data-c="' + c + '"]').forEach(function (el) { el.classList.add('hl'); }); }
+  function off() { svg.classList.remove('focus'); svg.querySelectorAll('.hl').forEach(function (el) { el.classList.remove('hl'); }); }
+  document.querySelectorAll('.cluster[data-c], .casemap .badge').forEach(function (el) {
+    var c = el.getAttribute('data-c');
+    el.addEventListener('mouseenter', function () { on(c); });
+    el.addEventListener('focus', function () { on(c); });
+    el.addEventListener('mouseleave', off);
+    el.addEventListener('blur', off);
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

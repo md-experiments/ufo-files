@@ -9,3 +9,5 @@ pytesseract>=0.3.10
 pillow>=10.0
 anthropic>=1.8
 pydantic>=2.6
+numpy>=1.26
+scikit-learn>=1.4

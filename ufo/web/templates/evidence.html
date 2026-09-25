@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Evidence · UFO Files{% endblock %}
+{% block content %}
+<p class="small"><a href="/patterns">← Patterns</a></p>
+<div class="eyebrow">Evidence</div>
+<h1>
+  {% if ev.feature %}{{ ev.feature.label }}{% endif %}
+  {% if ev.feature and (ev.year or ev.place) %}<span class="muted"> · </span>{% endif %}
+  {% if ev.place %}{{ ev.place_label }}{% endif %}
+  {% if ev.place and ev.year %}<span class="muted"> · </span>{% endif %}
+  {% if ev.year %}{{ ev.year }}{% endif %}
+</h1>
+<p class="secondary">
+  {% if ev.feature %}{{ ev.feature.description }} {% endif %}
+  {{ ev.total | n }} sighting page{{ 's' if ev.total != 1 }} in {{ ev.records | length }} record{{ 's' if ev.records | length != 1 }}{% if ev.year %} mention {{ ev.year }}{% endif %}{% if ev.place %}{{ ' and' if ev.year else '' }} mention {{ ev.place_label }}{% endif %}{% if ev.feature and not ev.year and not ev.place %} report this detail{% elif ev.feature %}, with this detail{% endif %}.
+  {% if ev.shown < ev.total %}Showing the first {{ ev.shown }}.{% endif %}
+</p>
+<div class="active-filters">
+  {% if ev.feature %}<a class="chip strong" href="{{ url('/patterns/evidence', year=ev.year, place=ev.place) if (ev.year or ev.place) else '/patterns' }}">{{ ev.feature.label }} ✕</a>{% endif %}
+  {% if ev.year %}<a class="chip strong" href="{{ url('/patterns/evidence', feature=ev.feature.key if ev.feature, place=ev.place) if (ev.feature or ev.place) else '/patterns' }}">{{ ev.year }} ✕</a>{% endif %}
+  {% if ev.place %}<a class="chip strong" href="{{ url('/patterns/evidence', feature=ev.feature.key if ev.feature, year=ev.year) if (ev.feature or ev.year) else '/patterns' }}">{{ ev.place_label }} ✕</a>{% endif %}
+</div>
+
+{% for rows in ev.records %}
+{% set d = rows[0].doc %}
+<article class="card evidence-record">
+  <h3><a href="/documents/{{ d.id }}">{{ d.title }}</a></h3>
+  <div class="muted small">{{ d.record_id }}{% if d.agency %} · {{ d.agency }}{% endif %}{% if d.year %} · incident {{ d.year }}{% endif %} · {{ rows | length }} page{{ 's' if rows | length != 1 }}</div>
+  <ul class="quotes">
+    {% for r in rows[:6] %}
+    <li>
+      {% if r.snippet %}<blockquote>{{ r.snippet }}</blockquote>{% endif %}
+      <div class="chips"><a class="small" href="/documents/{{ d.id }}{% if r.page %}#p{{ r.page }}{% endif %}">{{ 'Page ' ~ r.page if r.page else "Publisher's description" }}</a>
+      {% for k, lab in r.features if not ev.feature or k != ev.feature.key %}<a class="chip" href="{{ url('/patterns/evidence', feature=k) }}">{{ lab }}</a>{% endfor %}</div>
+    </li>
+    {% endfor %}
+    {% if rows | length > 6 %}<li class="muted small">and {{ rows | length - 6 }} more pages in this record</li>{% endif %}
+  </ul>
+</article>
+{% else %}
+<div class="empty">No sighting pages match.</div>
+{% endfor %}
+{% endblock %}

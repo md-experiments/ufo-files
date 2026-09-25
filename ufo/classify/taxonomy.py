@@ -136,7 +136,11 @@ FACET_LABELS = {
 
 
 def label(facet: str, value: str) -> str:
-    return FACETS.get(facet, {}).get(value, value.replace("_", " ").title())
+    known = FACETS.get(facet, {}).get(value)
+    if known:
+        return known
+    # free-text values (agency names) are shown as published
+    return value.replace("_", " ").title() if "_" in value else value
 
 
 def era_for_year(year: int | None) -> str | None:

@@ -391,6 +391,27 @@ def reset_for_reprocess(stage: str, record_ids: list[str] | None = None) -> int:
 # Orchestration
 # --------------------------------------------------------------------------
 
+def _analysis_exists() -> bool:
+    from .db import AnalysisResult
+
+    with session_scope() as db:
+        return db.scalar(select(func.count()).select_from(AnalysisResult)) > 0
+
+
+def run_analysis_step(rlog: RunLog) -> None:
+    """Look for connections across all records (waves, recurring details,
+    clusters of similar cases). Failures here never fail the run."""
+    from .analyze import run_analysis
+
+    try:
+        s = run_analysis()
+        rlog("analysis: %d sighting pages, %d observations, %d waves, %d clusters, %d cross-links",
+             s["sighting_units"], s["observations"], s["waves"], s["clusters"], s["links"])
+    except Exception as exc:
+        log.exception("analysis failed")
+        rlog("analysis failed: %s", exc)
+
+
 def run_pipeline(trigger: str = "manual", sources: list[str] | None = None, limit: int | None = None) -> int | None:
     """Run discovery + processing. Returns the PipelineRun id, or None if a run
     is already in progress."""
@@ -443,6 +464,8 @@ def run_pipeline(trigger: str = "manual", sources: list[str] | None = None, limi
                     rlog("source %s failed: %s", source.name, exc)
                     log.exception("source %s failed", source.name)
             processed, failed = process_pending(rlog, limit=limit, bundles=bundles)
+            if processed or new or updated or not _analysis_exists():
+                run_analysis_step(rlog)
         except Exception as exc:
             status = "error"
             rlog("pipeline error: %s", exc)

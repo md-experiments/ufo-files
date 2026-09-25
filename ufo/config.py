@@ -71,6 +71,7 @@ class Settings:
     # Scheduling (web process)
     scheduler_enabled: bool = field(default_factory=lambda: _bool("SCHEDULER_ENABLED", True))
     pipeline_interval_hours: float = field(default_factory=lambda: float(os.environ.get("PIPELINE_INTERVAL_HOURS", "6")))
+    seed_on_startup: bool = field(default_factory=lambda: _bool("SEED_ON_STARTUP", True))
     run_on_startup: bool = field(default_factory=lambda: _bool("RUN_PIPELINE_ON_STARTUP", True))
     admin_token: str = field(default_factory=lambda: os.environ.get("ADMIN_TOKEN", ""))
 

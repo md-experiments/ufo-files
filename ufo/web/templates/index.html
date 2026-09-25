@@ -92,21 +92,28 @@
   <div class="card"><h2>Source agency</h2>{{ hbars(agencies, param='agency', total=stats.records) }}</div>
 </section>
 
+<section class="section card">
+  <h2>When each release's incidents happened <small>one dot per record · <a href="/releases">all release charts →</a></small></h2>
+  <div class="scroll-x">{{ visuals.strip }}</div>
+</section>
+
+{% if patterns.ready %}
+<section class="section card">
+  <h2>Waves of reports <small><a href="/patterns">explore patterns & connections →</a></small></h2>
+  <p class="secondary small">Sighting pages per year, from the dates they mention. Shaded periods had far more reports than the surrounding decades.</p>
+  <div class="scroll-x">{{ patterns.timeline_svg }}</div>
+</section>
+{% endif %}
+
 <section class="section grid cols-2">
   <div class="card"><h2>Programs & investigations referenced</h2>{{ hbars(programs, 'program', total=stats.records) }}</div>
   <div class="card">
-    <h2>Release table</h2>
-    <div class="table-scroll">
-    <table class="data">
-      <thead><tr><th>Release</th>{% for m in MEDIA_ORDER %}<th class="num">{{ MEDIA_LABELS[m] }}</th>{% endfor %}<th class="num">Pages</th></tr></thead>
-      <tbody>
-      {% for r in releases | reverse %}
-        <tr><td><a href="{{ url('/documents', release=r.id) }}">{{ r.label }}</a></td>
-          {% for m in MEDIA_ORDER %}<td class="num">{{ r.counts.get(m, 0) }}</td>{% endfor %}
-          <td class="num">{{ r.pages | n }}</td></tr>
+    <h2>Who released what <small>share of each release by agency</small></h2>
+    <div class="legend">{% for a, cls in visuals.agency_legend %}<span><i class="{{ cls }}"></i>{{ a }}</span>{% endfor %}</div>
+    <div class="stack-rows">
+      {% for st in visuals.stacks %}
+      <div class="stack-row"><a class="stack-name small" href="{{ url('/documents', release=st.release.id) }}">{{ st.release.label }}</a>{{ st.bar }}<span class="hbar-value">{{ st.total }}</span></div>
       {% endfor %}
-      </tbody>
-    </table>
     </div>
   </div>
 </section>

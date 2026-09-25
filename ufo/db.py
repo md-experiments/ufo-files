@@ -144,6 +144,44 @@ class Tag(Base):
     document: Mapped[Document] = relationship(back_populates="tags")
 
 
+class Observation(Base):
+    """A recurring observable detail (halo, hum, smell...) found on a page.
+
+    ``page_no`` 0 means the publisher's description of the record."""
+
+    __tablename__ = "observations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), index=True)
+    page_no: Mapped[int] = mapped_column(Integer)
+    feature: Mapped[str] = mapped_column(String(64), index=True)
+    snippet: Mapped[str] = mapped_column(Text)
+
+
+class Mention(Base):
+    """A date or place mentioned on a sighting page (or the record's own
+    incident date/location, with ``page_no`` 0)."""
+
+    __tablename__ = "mentions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), index=True)
+    page_no: Mapped[int] = mapped_column(Integer)
+    kind: Mapped[str] = mapped_column(String(16), index=True)  # date | place
+    value: Mapped[str] = mapped_column(String(64), index=True)  # ISO date, or place key
+    precision: Mapped[str | None] = mapped_column(String(16))  # day | month | year
+
+
+class AnalysisResult(Base):
+    """Computed cross-record analysis (clusters, waves, co-occurrence...), as JSON."""
+
+    __tablename__ = "analysis_results"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    data: Mapped[dict] = mapped_column(JSON)
+    computed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class PipelineRun(Base):
     __tablename__ = "pipeline_runs"
 

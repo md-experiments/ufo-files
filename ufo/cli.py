@@ -37,6 +37,8 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("import-seed", help="load a data snapshot into an empty database")
     p.add_argument("path", nargs="?", default=str(DEFAULT_SEED))
 
+    sub.add_parser("analyze", help="recompute cross-record patterns (waves, clusters, links)")
+
     sub.add_parser("status", help="summarise the database")
 
     args = parser.parse_args(argv)
@@ -74,6 +76,8 @@ def main(argv: list[str] | None = None) -> int:
     elif args.cmd == "import-seed":
         from .seed import import_seed
         print(f"imported {import_seed(Path(args.path))} documents")
+    elif args.cmd == "analyze":
+        pipeline.run_analysis_step(pipeline.RunLog())
     elif args.cmd == "status":
         from sqlalchemy import func, select
         from .db import Document, PipelineRun, session_scope

@@ -19,6 +19,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.setenv("LLM_ENABLED", "false")
     monkeypatch.setenv("SCHEDULER_ENABLED", "false")
+    monkeypatch.setenv("SEED_ON_STARTUP", "false")
     monkeypatch.setenv("REQUEST_ARCHIVE", "false")
     from ufo import config, db
 
