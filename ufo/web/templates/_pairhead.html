@@ -1,0 +1,11 @@
+{# two records side by side; expects da, db (dicts or Documents) #}
+<div class="pair-head">
+  {% for side, d in (('A', da), ('B', db)) %}
+  <a class="pair-rec side-{{ side | lower }}" href="/documents/{{ d.id }}">
+    <span class="side-tag tag-{{ side | lower }}">{{ side }}</span>
+    <span class="rid">{{ d.record_id | truncate(40) if not d.title.startswith(d.record_id) else '' }}</span>
+    <span class="link-title">{{ d.title | truncate(110) }}</span>
+    <span class="muted small">{{ d.agency or '' }}{% set y = d.year if d.year is defined else d.incident_year %}{% if y %} · {{ y }}{% endif %}</span>
+  </a>
+  {% endfor %}
+</div>

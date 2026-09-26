@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Connections · UFO Files{% endblock %}
+{% block content %}
+<p class="small"><a href="/patterns#links">← Patterns</a></p>
+<div class="eyebrow">Connections</div>
+<h1>Reports that describe the same things</h1>
+<p class="secondary">{{ lp.links | length }} pairs of records from different agencies, or at least 15 years apart, that describe strikingly similar things. {{ lp.with_text }} of them share passages of near-identical wording; the strongest is shown for each. Open a pair to see every matching section side by side.</p>
+
+<div class="link-list">
+  {% for l in lp.links %}
+  <article class="card linkcard">
+    {% with da=l.da, db=l.db %}{% include "_pairhead.html" %}{% endwith %}
+    {% if l.best %}
+    <div class="cmp-grid">
+      {% for side, doc, x in (('A', l.da, l.best.a), ('B', l.db, l.best.b)) %}
+      <div class="side-{{ side | lower }}"><blockquote>{{ x.text | truncate(260) | mark_terms(l.best.terms) }}</blockquote>
+        <span class="muted small"><span class="side-tag sm tag-{{ side | lower }}">{{ side }}</span> {{ x.where }}</span></div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <div class="chips">
+      {% if l.cross_agency %}<span class="chip strong">different agencies</span>{% endif %}
+      {% if l.years_apart >= 15 %}<span class="chip strong">{{ l.years_apart }} years apart</span>{% endif %}
+      {% for s in l.shared_labels[:5] %}<span class="chip">{{ s }}</span>{% endfor %}
+      <span class="muted small">{{ (l.score * 100) | round | int }}% similar</span>
+    </div>
+    <a class="more" href="{{ url('/patterns/compare', a=l.a, b=l.b) }}">{% if l.matches %}{{ l.matches }}{{ '+' if l.matches >= 12 }} matching passage{{ 's' if l.matches != 1 }}{% else %}Compare details{% endif %} →</a>
+  </article>
+  {% else %}
+  <div class="empty">No connections found yet. They appear after the pattern analysis runs.</div>
+  {% endfor %}
+</div>
+{% endblock %}

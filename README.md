@@ -138,6 +138,12 @@ Run it by hand with `python -m ufo analyze`.
 
   Every mark links to `/patterns/evidence?feature=&year=&place=`, which lists
   the matching sighting pages with quotes.
+* **Connections** (`/patterns/links`): every cross-link with its strongest
+  matching passage. `/patterns/compare?a=&b=` compares any two records: the
+  sentences that match (shared words highlighted, with page links), the
+  details both report with their quotes, places and dates written in both,
+  and the metadata and labels side by side. Passage matching runs with the
+  analysis step, so it updates with new releases.
 * **Browse** (`/documents`): full-text search across titles, summaries and
   OCR'd text, with filters by release, agency, media type and any label.
 * **Document** (`/documents/{id}`): metadata, summary, labels, related records,
@@ -150,7 +156,8 @@ Run it by hand with `python -m ufo analyze`.
   `Authorization: Bearer $ADMIN_TOKEN` triggers a run.
 
 The web process runs the pipeline in a background thread on startup and then
-every `PIPELINE_INTERVAL_HOURS`. Runs are guarded so they never overlap.
+every `PIPELINE_INTERVAL_HOURS` (once a day by default), counted from the last finished run so redeploys
+don't trigger extra runs. Runs are guarded so they never overlap.
 
 ## Deploying to Railway
 
@@ -164,7 +171,7 @@ every `PIPELINE_INTERVAL_HOURS`. Runs are guarded so they never overlap.
 3. Optional variables:
    * `ANTHROPIC_API_KEY`: enables Claude summaries and classification.
    * `ADMIN_TOKEN`: enables `POST /api/pipeline/run`.
-   * `PIPELINE_INTERVAL_HOURS` (default `6`).
+   * `PIPELINE_INTERVAL_HOURS` (default `24`).
 4. Deploy. On first boot the app loads the bundled snapshot
    (`data/seed/ufo-seed.json.gz`) into an empty database so the site has data
    straight away, then the pipeline picks up anything newer.
@@ -190,7 +197,7 @@ Keep one replica. The scheduler runs inside the web process.
 | `LLM_MAX_CHARS` | `300000` | longer texts are sent as head + tail, and the record is flagged `llm_input_truncated` |
 | `SCHEDULER_ENABLED` | `true` | run the pipeline from the web process |
 | `RUN_PIPELINE_ON_STARTUP` | `true` | run once at boot |
-| `PIPELINE_INTERVAL_HOURS` | `6` | how often to check for new releases |
+| `PIPELINE_INTERVAL_HOURS` | `24` | how often to check for new releases |
 | `ADMIN_TOKEN` | — | bearer token for `POST /api/pipeline/run` |
 
 ## Running locally

@@ -2,7 +2,7 @@
 {% block title %}Pipeline · UFO Files{% endblock %}
 {% block content %}
 <h1>Pipeline</h1>
-<p class="secondary">The pipeline checks the official PURSUE index for new records every {{ settings.pipeline_interval_hours | round(1) }} hours, downloads new files (falling back to the Internet Archive when the government site blocks the request), extracts text page by page with OCR for scanned pages, and classifies each record using <strong>{{ classifier }}</strong>.</p>
+<p class="secondary">The pipeline checks the official PURSUE index for new records {% if settings.pipeline_interval_hours == 24 %}once a day{% else %}every {{ settings.pipeline_interval_hours | round(1) }} hours{% endif %}, downloads new files (falling back to the Internet Archive when the government site blocks the request), extracts text page by page with OCR for scanned pages, and classifies each record using <strong>{{ classifier }}</strong>.</p>
 
 <section class="tiles">
   {% for s in ['classified', 'extracted', 'downloaded', 'new', 'unavailable', 'failed'] %}

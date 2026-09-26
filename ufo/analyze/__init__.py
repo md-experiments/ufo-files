@@ -126,6 +126,9 @@ def compute(db: Session) -> dict:
         "places": place_summary(unit_places, unit_year),
     }
     results.update(connections(docs, tags, obs, unit_year))
+    from .matching import link_previews
+
+    link_previews(db, results["links"], boilerplate_sentences(d.description or "" for d in docs.values()))
     results["overview"] = {
         "sighting_units": len(all_units),
         "observations": len(obs),

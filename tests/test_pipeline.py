@@ -234,3 +234,33 @@ def test_analysis_stage_and_patterns_pages(fake):
             assert resp.status_code == 200, (path, resp.text[-800:])
         assert "Patterns in the UFO files" in client.get("/patterns").text
         assert client.get("/patterns/evidence").status_code == 400
+        # comparing two records (their shared sentences repeat in 12 records, so
+        # they count as boilerplate; matching itself is tested in test_analyze)
+        cmp = client.get("/patterns/compare?a=1&b=2")
+        assert cmp.status_code == 200, cmp.text[-800:]
+        assert "Matching passages" in cmp.text and "Side by side" in cmp.text
+        assert client.get("/patterns/links").status_code == 200
+        assert client.get("/patterns/compare?a=1&b=1").status_code == 404
+
+
+def test_scheduler_runs_once_per_interval(fake, monkeypatch):
+    from datetime import timedelta
+
+    from ufo.db import PipelineRun, session_scope, utcnow
+    from ufo.web import app as webapp
+
+    calls = []
+    monkeypatch.setattr(pipeline, "run_pipeline", lambda trigger: calls.append(trigger))
+    monkeypatch.setattr(webapp._stop, "wait", lambda _t: webapp._stop.set())
+    with session_scope() as db:  # finished 2 hours ago: not due with a daily interval
+        db.add(PipelineRun(status="ok", started_at=utcnow() - timedelta(hours=2), finished_at=utcnow()))
+    webapp._stop.clear()
+    webapp._scheduler_loop()
+    assert calls == []
+    with session_scope() as db:  # a run cut short by a redeploy doesn't count
+        db.query(PipelineRun).delete()
+        db.add(PipelineRun(status="error", started_at=utcnow() - timedelta(hours=2)))
+    webapp._stop.clear()
+    webapp._scheduler_loop()
+    assert calls == ["startup"]
+    webapp._stop.clear()

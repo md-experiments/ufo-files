@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -41,20 +42,44 @@ _stop = threading.Event()
 # Background scheduler
 # ---------------------------------------------------------------------------
 
+def _last_finished_run() -> datetime | None:
+    """When the last run that got to the end started; runs cut short by a
+    redeploy don't count, so they are picked up again."""
+    from sqlalchemy import func, select
+
+    from ..db import PipelineRun
+
+    with session_scope() as db:
+        return db.scalar(select(func.max(PipelineRun.started_at)).where(PipelineRun.finished_at.is_not(None)))
+
+
 def _scheduler_loop() -> None:
+    """Run the pipeline once every PIPELINE_INTERVAL_HOURS, counted from the
+    last finished run, so restarts and redeploys don't cause extra runs."""
+    from datetime import timedelta
+
+    from ..db import utcnow
     from ..pipeline import run_pipeline
 
     s = get_settings()
-    interval = max(0.25, s.pipeline_interval_hours) * 3600
+    interval = timedelta(hours=max(0.25, s.pipeline_interval_hours))
     first = True
     while not _stop.is_set():
-        if not first or s.run_on_startup:
+        try:
+            last = _last_finished_run()
+        except Exception:
+            log.exception("could not read the last pipeline run")
+            last = None
+        due = last is None or utcnow() - last >= interval
+        if due and (s.run_on_startup or not first):
             try:
                 run_pipeline(trigger="startup" if first else "schedule")
             except Exception:  # never let the thread die
                 log.exception("scheduled pipeline run failed")
+        elif first and last is not None:
+            log.info("next pipeline run due at %s UTC", (last + interval).isoformat(timespec="minutes"))
         first = False
-        _stop.wait(interval)
+        _stop.wait(600)  # check every 10 minutes whether a run is due
 
 
 def start_background_jobs() -> None:
@@ -151,6 +176,21 @@ def _highlight(text: str, q: str | None, width: int = 220) -> Markup:
     return Markup(out + ("…" if start + width < len(text) else ""))
 
 
+_WORD = re.compile(r"[A-Za-z][A-Za-z-]{2,}")
+
+
+def _mark_terms(text: str, terms) -> Markup:
+    """Escape ``text`` and mark the words listed in ``terms``."""
+    words = {t.lower() for t in terms or ()}
+    out, last = [], 0
+    for m in _WORD.finditer(text or ""):
+        if m.group(0).lower() in words:
+            out += [str(escape(text[last:m.start()])), "<mark>", str(escape(m.group(0))), "</mark>"]
+            last = m.end()
+    out.append(str(escape((text or "")[last:])))
+    return Markup("".join(out))
+
+
 def _url(path: str, **params) -> str:
     clean = {k: v for k, v in params.items() if v not in (None, "", [])}
     return path + ("?" + urlencode(clean, doseq=True) if clean else "")
@@ -159,6 +199,7 @@ def _url(path: str, **params) -> str:
 templates.env.filters["n"] = _fmt_int
 templates.env.filters["ago"] = _ago
 templates.env.filters["d"] = _date
+templates.env.filters["mark_terms"] = _mark_terms
 templates.env.globals.update(
     label=label, FACET_LABELS=FACET_LABELS, FACETS=FACETS, MEDIA_LABELS=Q.MEDIA_LABELS,
     MEDIA_ORDER=Q.MEDIA_ORDER, highlight=_highlight, url=_url, version=__version__, asset_version=ASSET_VERSION,
@@ -280,6 +321,21 @@ def patterns_evidence(request: Request, feature: str | None = None, year: int | 
         raise HTTPException(400, "choose a feature, year or place")
     with session_scope() as db:
         return render(request, "evidence.html", ev=P.evidence(db, feature, year, place))
+
+
+@app.get("/patterns/links", response_class=HTMLResponse)
+def patterns_links(request: Request):
+    with session_scope() as db:
+        return render(request, "links.html", lp=P.links_page(db))
+
+
+@app.get("/patterns/compare", response_class=HTMLResponse)
+def patterns_compare(request: Request, a: int, b: int):
+    with session_scope() as db:
+        c = P.compare(db, a, b)
+        if not c:
+            raise HTTPException(404, "records not found")
+        return render(request, "compare.html", c=c)
 
 
 @app.get("/api/patterns")

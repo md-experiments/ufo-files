@@ -102,7 +102,7 @@
       <ul class="similar-list">
         {% for s in patterns.similar %}
         <li><a href="/documents/{{ s.doc.id }}">{{ s.doc.title | truncate(80) }}</a>
-          <div class="muted small">{{ s.doc.agency or '' }}{% if s.doc.year %} · {{ s.doc.year }}{% endif %} · {{ (s.score * 100) | round | int }}% similar</div>
+          <div class="muted small">{{ s.doc.agency or '' }}{% if s.doc.year %} · {{ s.doc.year }}{% endif %} · {{ (s.score * 100) | round | int }}% similar · <a href="{{ url('/patterns/compare', a=doc.id, b=s.doc.id) }}">compare</a></div>
           {% if s.shared %}<div class="chips">{% for t in s.shared[:4] %}<span class="chip">{{ t }}</span>{% endfor %}</div>{% endif %}</li>
         {% endfor %}
       </ul>

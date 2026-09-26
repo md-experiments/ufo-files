@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}{{ c.a.record_id }} ⟷ {{ c.b.record_id }} · UFO Files{% endblock %}
+{% block content %}
+<p class="small"><a href="/patterns/links">← All connections</a> · <a href="/patterns#links">Patterns</a></p>
+<div class="eyebrow">Connection</div>
+<h1>What these two records share</h1>
+{% with da=c.a, db=c.b %}{% include "_pairhead.html" %}{% endwith %}
+<div class="chips" style="margin-top:12px">
+  {% if c.score is not none %}<span class="chip strong">{{ (c.score * 100) | round | int }}% similar</span>{% endif %}
+  {% if c.cross_agency %}<span class="chip strong">different agencies</span>{% endif %}
+  {% if c.years_apart is not none and c.years_apart >= 1 %}<span class="chip strong">{{ c.years_apart }} year{{ 's' if c.years_apart != 1 }} apart</span>{% elif c.years_apart == 0 %}<span class="chip strong">same year</span>{% endif %}
+  {% if c.same_cluster %}<a class="chip strong" href="/patterns#clusters"><span class="cluster-no sm">{{ c.same_cluster.id }}</span> both in cluster: {{ c.same_cluster.name }}</a>{% endif %}
+  {% if c.link %}<span class="chip">discovered link</span>{% endif %}
+</div>
+
+<nav class="toc small" aria-label="On this page">
+  <a href="#passages">Matching passages ({{ c.matches | length }})</a>
+  {% if c.shared_obs %}<a href="#details">Details in both ({{ c.shared_obs | length }})</a>{% endif %}
+  {% if c.places or c.dates %}<a href="#where-when">Places &amp; dates in both</a>{% endif %}
+  <a href="#side-by-side">Side by side</a>
+</nav>
+
+<section class="section" id="passages">
+  <h2>Matching passages</h2>
+  {% if c.matches %}
+  <p class="secondary small">Sentences from the two records that use the same distinctive words, strongest first. Shared words are highlighted. Page text is often read with OCR, so spelling can be rough.</p>
+  <ol class="match-list">
+    {% for m in c.matches %}
+    <li class="card match">
+      <div class="match-meta"><span class="meter" aria-hidden="true"><span style="width: {{ (m.score * 100) | round | int }}%"></span></span><span class="muted small">{{ (m.score * 100) | round | int }}% word overlap</span></div>
+      <div class="cmp-grid">
+        {% for side, doc, x in (('A', c.a, m.a), ('B', c.b, m.b)) %}
+        <div class="side-{{ side | lower }}">
+          <blockquote>{{ x.text | mark_terms(m.terms) }}</blockquote>
+          <a class="small" href="/documents/{{ doc.id }}{% if x.page %}#p{{ x.page }}{% endif %}"><span class="side-tag sm tag-{{ side | lower }}">{{ side }}</span> {{ x.where }}</a>
+        </div>
+        {% endfor %}
+      </div>
+    </li>
+    {% endfor %}
+  </ol>
+  {% else %}
+  <div class="empty">No sentences match closely. The link comes from what the records describe (the details, places and dates below) rather than from shared wording{% if c.a.media_type != 'pdf' or c.b.media_type != 'pdf' %}; one of them is a {{ c.a.media_type if c.a.media_type != 'pdf' else c.b.media_type }}, which has only the publisher's description as text{% endif %}.</div>
+  {% endif %}
+</section>
+
+{% if c.shared_obs %}
+<section class="section" id="details">
+  <h2>Details both records report</h2>
+  <p class="secondary small">Concrete details the pattern analysis found in both, with the lines they come from.</p>
+  <div class="detail-pairs">
+    {% for o in c.shared_obs %}
+    <article class="card">
+      <h3><a class="chip strong" href="{{ url('/patterns/evidence', feature=o.key) }}">{{ o.label }}</a> <span class="muted small">{{ o.group }}</span></h3>
+      <div class="cmp-grid">
+        {% for side, doc, rows, n in (('A', c.a, o.a, o.na), ('B', c.b, o.b, o.nb)) %}
+        <ul class="quotes side-{{ side | lower }}">
+          {% for r in rows %}
+          <li><blockquote>{{ r.snippet }}</blockquote><a class="small" href="/documents/{{ doc.id }}{% if r.page %}#p{{ r.page }}{% endif %}"><span class="side-tag sm tag-{{ side | lower }}">{{ side }}</span> {{ 'Page ' ~ r.page if r.page else "Publisher's description" }}</a></li>
+          {% endfor %}
+          {% if n > rows | length %}<li class="muted small">and {{ n - rows | length }} more in {{ side }}</li>{% endif %}
+        </ul>
+        {% endfor %}
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if c.places or c.dates %}
+<section class="section" id="where-when">
+  <h2>Places and dates written in both</h2>
+  <div class="card">
+    <table class="data">
+      <thead><tr><th></th><th><span class="side-tag sm tag-a">A</span> pages</th><th><span class="side-tag sm tag-b">B</span> pages</th></tr></thead>
+      <tbody>
+        {% for d in c.dates %}
+        <tr><td>{{ d.label }}</td>
+          {% for doc, pages in ((c.a, d.a), (c.b, d.b)) %}<td>{% for pg in pages[:8] %}<a href="/documents/{{ doc.id }}{% if pg %}#p{{ pg }}{% endif %}">{{ pg if pg else 'desc.' }}</a>{{ ', ' if not loop.last }}{% endfor %}{% if pages | length > 8 %} …{% endif %}</td>{% endfor %}</tr>
+        {% endfor %}
+        {% for p in c.places %}
+        <tr><td><a href="{{ url('/patterns/evidence', place=p.key) }}">{{ p.label }}</a></td>
+          {% for doc, pages in ((c.a, p.a), (c.b, p.b)) %}<td>{% for pg in pages[:8] %}<a href="/documents/{{ doc.id }}{% if pg %}#p{{ pg }}{% endif %}">{{ pg if pg else 'desc.' }}</a>{{ ', ' if not loop.last }}{% endfor %}{% if pages | length > 8 %} …{% endif %}</td>{% endfor %}</tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+<section class="section" id="side-by-side">
+  <h2>Side by side</h2>
+  <div class="card">
+    <div class="sbs">
+      <div class="sbs-row sbs-head"><div></div><div><span class="side-tag sm tag-a">A</span></div><div><span class="side-tag sm tag-b">B</span></div></div>
+      {% for f in c.facts %}
+      <div class="sbs-row{{ ' same' if f.same }}"><div class="sbs-k">{{ f.label }}{% if f.same %} <span class="same-mark" title="same in both">✓</span>{% endif %}</div><div>{{ f.a }}</div><div>{{ f.b }}</div></div>
+      {% endfor %}
+      {% for f in c.facets %}
+      <div class="sbs-row{{ ' same' if f.same }}"><div class="sbs-k">{{ f.label }}{% if f.same %} <span class="same-mark" title="shared">✓</span>{% endif %}</div>
+        {% for vals in (f.a, f.b) %}<div class="chips">{% for l, shared in vals %}<span class="chip{{ ' strong shared' if shared }}">{{ l }}</span>{% else %}<span class="muted">—</span>{% endfor %}</div>{% endfor %}</div>
+      {% endfor %}
+      {% if c.only_a or c.only_b %}
+      <div class="sbs-row"><div class="sbs-k">Details in one only</div>
+        {% for vals in (c.only_a, c.only_b) %}<div class="chips">{% for k, l in vals %}<a class="chip" href="{{ url('/patterns/evidence', feature=k) }}">{{ l }}</a>{% else %}<span class="muted">—</span>{% endfor %}</div>{% endfor %}</div>
+      {% endif %}
+    </div>
+  </div>
+</section>
+{% endblock %}

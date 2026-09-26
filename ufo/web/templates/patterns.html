@@ -160,7 +160,7 @@
 {% if p.links %}
 <section class="section" id="links">
   <h2>Connections across agencies and decades</h2>
-  <p class="secondary small">Pairs of records from different agencies, or at least 15 years apart, that describe strikingly similar things. Records the publisher already paired, or files from the same series, are left out.</p>
+  <p class="secondary small">Pairs of records from different agencies, or at least 15 years apart, that describe strikingly similar things. Records the publisher already paired, or files from the same series, are left out. Open a pair to see the exact passages that match.</p>
   <div class="link-list">
     {% for l in p.links[:24] %}
     <article class="card linkcard">
@@ -175,9 +175,11 @@
         {% for s in l.shared_labels[:6] %}<span class="chip">{{ s }}</span>{% endfor %}
         <span class="muted small">similarity {{ (l.score * 100) | round | int }}%</span>
       </div>
+      <a class="more" href="{{ url('/patterns/compare', a=l.a, b=l.b) }}">{% if l.matches %}{{ l.matches }}{{ '+' if l.matches >= 12 }} matching passage{{ 's' if l.matches != 1 }}, side by side{% else %}Compare side by side{% endif %} →</a>
     </article>
     {% endfor %}
   </div>
+  <p class="links-more"><a class="more" href="/patterns/links">All {{ p.links | length }} connections with their matching passages →</a></p>
 </section>
 {% endif %}
 

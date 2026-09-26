@@ -53,3 +53,22 @@ def test_places():
     assert find_places("Albuquerque, New Mexico") == ["US-NM"]
     assert location_places("CENTCOM") == ["Middle East (CENTCOM)"]
     assert location_places("Low Earth Orbit") == ["Moon / space"]
+
+
+def test_passage_matching():
+    from types import SimpleNamespace
+
+    from ufo.analyze.matching import match, passages
+
+    a = SimpleNamespace(description="A record of the Minczewski sighting.", summary=None, key_points=None)
+    b = SimpleNamespace(description=None, summary=None, key_points=None)
+    pa = passages(a, [(170, "Minozewski observed a strange metallic disk on three occasions thru the theodolite "
+                            "while making his pibal observation."), (171, "~~ ,,; ;; ..: gD ou Re ys P 11 An les tt Qu ee")])
+    pb = passages(b, [(126, "Minczewski has observed this strange metallic disk on three occasions through the "
+                            "theodolite while making his pibal observation during the last six months."),
+                      (127, "The weather was clear and the wind came from the south for the whole afternoon.")])
+    found = match(pa, pb)
+    assert len(found) == 1
+    m = found[0]
+    assert m["a"]["page"] == 170 and m["b"]["page"] == 126
+    assert {"metallic", "theodolite", "pibal"} <= set(m["terms"])
