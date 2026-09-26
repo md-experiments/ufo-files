@@ -176,6 +176,20 @@ class Account(Base):
     spans: Mapped[list] = mapped_column(JSON)
 
 
+class TagCache(Base):
+    """LLM event tags for an account's text, so each text is sent once per
+    model and tagger version. ``key`` is a SHA-256 of version, model and text."""
+
+    __tablename__ = "tag_cache"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    model: Mapped[str] = mapped_column(String(128))
+    observation: Mapped[bool] = mapped_column(Boolean, default=True)
+    tags: Mapped[list] = mapped_column(JSON)
+    spans: Mapped[list] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class Mention(Base):
     """A date or place mentioned on a sighting page (or the record's own
     incident date/location, with ``page_no`` 0)."""

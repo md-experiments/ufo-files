@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..db import Account, Document, Mention, Observation
 from .dates import find_dates
-from .events import accounts_for
+from .events import candidates_for, keep
+from .llm_tags import refine, tagger_id
 from .features import find_observables, is_sighting_text
 from .places import find_places, location_places
 
@@ -25,13 +26,15 @@ def units(doc: Document) -> list[tuple[int, str]]:
     return out
 
 
-def extract_document(db: Session, doc: Document) -> tuple[int, int]:
-    """Replace ``doc``'s observations and mentions. Returns (sighting units, observations)."""
+def extract_document(db: Session, doc: Document, candidates: list | None = None) -> tuple[int, int]:
+    """Replace ``doc``'s observations and mentions. Returns (sighting units,
+    observations). Candidate sighting accounts are appended to ``candidates``
+    as (doc id, account); ``extract_all`` tags and stores them."""
     db.execute(delete(Observation).where(Observation.document_id == doc.id))
     db.execute(delete(Mention).where(Mention.document_id == doc.id))
     db.execute(delete(Account).where(Account.document_id == doc.id))
-    for a in accounts_for(units(doc)):
-        db.add(Account(document_id=doc.id, page_no=a.page_no, seq=a.seq, text=a.text, tags=a.tags, spans=a.spans))
+    if candidates is not None:
+        candidates.extend((doc.id, a) for a in candidates_for(units(doc)))
     max_date = doc.release.release_date if doc.release else date.today()
     sighting_units = n_obs = 0
     for page_no, text in units(doc):
@@ -65,9 +68,19 @@ def extract_all(db: Session) -> dict:
         .options(selectinload(Document.pages), selectinload(Document.release))
     ).all()
     totals = {"documents": 0, "sighting_units": 0, "observations": 0}
+    candidates: list = []
     for doc in docs:
-        u, o = extract_document(db, doc)
+        u, o = extract_document(db, doc, candidates)
         totals["documents"] += 1
         totals["sighting_units"] += u
         totals["observations"] += o
+    # an LLM, when configured, re-reads the candidate passages (cached by text)
+    totals["tagging"] = refine(db, [a for _, a in candidates])
+    totals["tagger"] = tagger_id()
+    kept = 0
+    for doc_id, a in candidates:
+        if keep(a):
+            db.add(Account(document_id=doc_id, page_no=a.page_no, seq=a.seq, text=a.text, tags=a.tags, spans=a.spans))
+            kept += 1
+    totals["accounts"] = kept
     return totals

@@ -83,6 +83,7 @@ def classify_document(
         return base
     if out is None:
         base.details["llm_error"] = "declined"
+        base.details["llm_error_model"] = s.llm_model  # don't retry automatically
         return base
 
     llm, truncated = out

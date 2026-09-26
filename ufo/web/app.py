@@ -85,6 +85,13 @@ def _scheduler_loop() -> None:
             log.exception("could not read the last pipeline run")
             last = None
         due = last is None or utcnow() - last >= interval
+        if not due and first:
+            try:  # an LLM key was just added: re-classify now rather than tomorrow
+                from ..pipeline import llm_upgrade_pending
+
+                due = llm_upgrade_pending()
+            except Exception:
+                log.exception("could not check for records to re-classify")
         if due and (s.run_on_startup or not first):
             try:
                 run_pipeline(trigger="startup" if first else "schedule")
@@ -364,7 +371,9 @@ def pipeline_page(request: Request):
     with session_scope() as db:
         return render(
             request, "pipeline.html", runs=Q.runs(db), statuses=Q.status_counts(db), stats=Q.overview(db),
-            settings=s, classifier=s.llm_model if s.llm_available else "keyword rules",
+            settings=s,
+            classifier=(f'{ {"anthropic": "Claude", "openai": "OpenAI"}[s.llm_provider] } ({s.llm_model})'
+                        if s.llm_available else "keyword rules"),
         )
 
 

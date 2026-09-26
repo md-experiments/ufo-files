@@ -69,11 +69,23 @@ taxonomy (`ufo/classify/taxonomy.py`):
 * The **keyword rules** classifier always runs and needs no API key. It uses the
   publisher's title and description (high weight) and the extracted text (the
   number of matches required grows with document length).
-* When `ANTHROPIC_API_KEY` is set, **Claude** classifies each record from its
-  metadata and extracted text using structured outputs. That adds a
-  plain-language summary, key points, a 1–5 significance score, and the places,
-  people and organizations named. It runs with the API's server-side refusal
-  fallback enabled; if a call fails, the record keeps its rules-based result.
+* When an LLM key is set, the model classifies each record from its metadata
+  and extracted text using structured outputs. That adds a plain-language
+  summary, key points, a 1–5 significance score, and the places, people and
+  organizations named. If a call fails, the record keeps its rules-based
+  result.
+  * Provider: whichever key is present. `ANTHROPIC_API_KEY` selects **Claude**
+    (`claude-opus-5`, with the API's server-side refusal fallback).
+    `OPENAI_API_KEY` selects **OpenAI** (`gpt-5-mini`). With both set, Claude
+    is used unless `LLM_PROVIDER=openai`.
+  * When a key is added or the model changes, records classified by the rules
+    or another model are re-classified on the next start.
+* The same model **tags sighting accounts**. The keyword rules pick candidate
+  paragraphs; the model reads each one and returns the details it actually
+  reports, with the words each came from. It drops blank forms,
+  instructions, names and explanations. Results are cached by text and model,
+  so each paragraph is sent once. Paragraphs whose call fails keep their
+  rule-based tags and are retried on the next run.
 
 **Connections** (`ufo/analyze/`): after each run that brings in new or
 changed records, the pipeline re-analyses the whole collection (about 30
@@ -194,7 +206,8 @@ don't trigger extra runs. Runs are guarded so they never overlap.
    `DATABASE_URL=${{Postgres.DATABASE_URL}}`. Downloaded files still go to
    `/data` (set `KEEP_FILES=false` if you don't want to keep them).
 3. Optional variables:
-   * `ANTHROPIC_API_KEY`: enables Claude summaries and classification.
+   * `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`: enables LLM summaries,
+     classification and event tagging, using whichever key is set.
    * `ADMIN_TOKEN`: enables `POST /api/pipeline/run`.
    * `PIPELINE_INTERVAL_HOURS` (default `24`).
 4. Deploy. On first boot the app loads the bundled snapshot
@@ -217,8 +230,12 @@ Keep one replica. The scheduler runs inside the web process.
 | `OCR_MODE` | `auto` | `auto` = only pages without usable text; `always` = OCR every page, keep the better text |
 | `OCR_DPI` / `OCR_LANG` / `OCR_WORKERS` | `300` / `eng` / `2` | Tesseract settings |
 | `OCR_MIN_CHARS` | `80` | pages with fewer embedded characters are OCR'd |
-| `ANTHROPIC_API_KEY` | — | enables the Claude classifier |
-| `LLM_MODEL` | `claude-opus-5` | model for classification |
+| `ANTHROPIC_API_KEY` | — | enables Claude for classification and event tagging |
+| `OPENAI_API_KEY` | — | enables OpenAI for classification and event tagging |
+| `LLM_PROVIDER` | `auto` | `auto` (the key that is set; Claude if both), `anthropic` or `openai` |
+| `LLM_MODEL` | `claude-opus-5` / `gpt-5-mini` | model for the active provider |
+| `LLM_TAGGING` | `true` | let the LLM tag sighting accounts (otherwise keyword rules) |
+| `LLM_WORKERS` | `4` | concurrent tagging requests |
 | `LLM_MAX_CHARS` | `300000` | longer texts are sent as head + tail, and the record is flagged `llm_input_truncated` |
 | `SCHEDULER_ENABLED` | `true` | run the pipeline from the web process |
 | `RUN_PIPELINE_ON_STARTUP` | `true` | run once at boot |

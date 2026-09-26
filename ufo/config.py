@@ -63,9 +63,16 @@ class Settings:
     max_pages: int = field(default_factory=lambda: _int("MAX_PAGES_PER_DOC", 2000))
 
     # Classification
+    # An LLM (Claude or OpenAI) refines classification and tags sighting
+    # accounts when a key is set. LLM_PROVIDER=auto uses whichever key is
+    # present (Anthropic first when both are); "anthropic" / "openai" force one.
     anthropic_api_key: str = field(default_factory=lambda: os.environ.get("ANTHROPIC_API_KEY", ""))
+    openai_api_key: str = field(default_factory=lambda: os.environ.get("OPENAI_API_KEY", ""))
+    llm_provider_pref: str = field(default_factory=lambda: os.environ.get("LLM_PROVIDER", "auto").strip().lower())
     llm_enabled: bool = field(default_factory=lambda: _bool("LLM_ENABLED", True))
-    llm_model: str = field(default_factory=lambda: os.environ.get("LLM_MODEL", "claude-opus-5"))
+    llm_model_override: str = field(default_factory=lambda: os.environ.get("LLM_MODEL", "").strip())
+    llm_tagging: bool = field(default_factory=lambda: _bool("LLM_TAGGING", True))
+    llm_workers: int = field(default_factory=lambda: _int("LLM_WORKERS", 4))
     llm_max_chars: int = field(default_factory=lambda: _int("LLM_MAX_CHARS", 300_000))
 
     # Scheduling (web process)
@@ -86,9 +93,28 @@ class Settings:
         return self.data_dir / "files"
 
     @property
-    def llm_available(self) -> bool:
-        return self.llm_enabled and bool(self.anthropic_api_key or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
+    def llm_provider(self) -> str | None:
+        """"anthropic", "openai", or None when no LLM is configured."""
+        if not self.llm_enabled:
+            return None
+        has = {"anthropic": bool(self.anthropic_api_key or os.environ.get("ANTHROPIC_AUTH_TOKEN")),
+               "openai": bool(self.openai_api_key)}
+        if self.llm_provider_pref in has:
+            return self.llm_provider_pref if has[self.llm_provider_pref] else None
+        return next((p for p in ("anthropic", "openai") if has[p]), None)
 
+    @property
+    def llm_available(self) -> bool:
+        return self.llm_provider is not None
+
+    @property
+    def llm_model(self) -> str:
+        if self.llm_model_override:
+            return self.llm_model_override
+        return DEFAULT_MODELS.get(self.llm_provider or "anthropic", DEFAULT_MODELS["anthropic"])
+
+
+DEFAULT_MODELS = {"anthropic": "claude-opus-5", "openai": "gpt-5-mini"}
 
 _settings: Settings | None = None
 

@@ -1,5 +1,5 @@
-"""Optional Claude-based classifier producing plain-language summaries and
-structured labels. Enabled when ANTHROPIC_API_KEY is set (LLM_ENABLED=true)."""
+"""Optional LLM classifier producing plain-language summaries and structured
+labels. Enabled when ANTHROPIC_API_KEY or OPENAI_API_KEY is set (see ``ufo.llm``)."""
 from __future__ import annotations
 
 import logging
@@ -71,24 +71,13 @@ def _build_prompt(meta: dict, text: str | None, max_chars: int) -> tuple[str, bo
 
 
 def classify_llm(meta: dict, text: str | None) -> tuple[LLMClassification, bool] | None:
-    """Returns (classification, input_truncated) or None when Claude declined."""
-    import anthropic
+    """Returns (classification, input_truncated) or None when the model declined."""
+    from .. import llm
 
     s = get_settings()
-    client = anthropic.Anthropic(max_retries=4)
     prompt, truncated = _build_prompt(meta, text, s.llm_max_chars)
-    response = client.beta.messages.parse(
-        model=s.llm_model,
-        max_tokens=16000,
-        system=SYSTEM,
-        messages=[{"role": "user", "content": prompt}],
-        output_format=LLMClassification,
-        output_config={"effort": "low"},
-        # On a safety decline, let the API re-run the request on a fallback model
-        betas=["server-side-fallback-2026-07-01"],
-        fallbacks="default",
-    )
-    if response.stop_reason == "refusal" or response.parsed_output is None:
-        log.warning("LLM declined to classify %s (stop_reason=%s)", meta.get("record_id"), response.stop_reason)
+    out = llm.parse(SYSTEM, prompt, LLMClassification)
+    if out is None:
+        log.warning("LLM declined to classify %s", meta.get("record_id"))
         return None
-    return response.parsed_output, truncated
+    return out, truncated

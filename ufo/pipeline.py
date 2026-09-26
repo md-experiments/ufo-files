@@ -398,6 +398,46 @@ def _analysis_exists() -> bool:
         return db.scalar(select(func.count()).select_from(AnalysisResult)) > 0
 
 
+def _analysis_outdated() -> bool:
+    from .analyze import analysis_outdated
+
+    with session_scope() as db:
+        return analysis_outdated(db)
+
+
+def _needs_llm_classification(db) -> list[int]:
+    """Records classified by the rules or another model while an LLM is now
+    configured. Records the current model already failed on are left alone
+    (reset them with ``python -m ufo reprocess classify`` to retry)."""
+    s = get_settings()
+    if not s.llm_available:
+        return []
+    out = []
+    for doc_id, classifier, details in db.execute(
+            select(Document.id, Document.classifier, Document.classification).where(Document.status == "classified")):
+        if classifier == s.llm_model:
+            continue
+        if (details or {}).get("llm_error_model") == s.llm_model:
+            continue
+        out.append(doc_id)
+    return out
+
+
+def llm_upgrade_pending() -> bool:
+    with session_scope() as db:
+        return bool(_needs_llm_classification(db))
+
+
+def _queue_llm_classification(rlog: RunLog) -> None:
+    with session_scope() as db:
+        ids = _needs_llm_classification(db)
+        if not ids:
+            return
+        for doc in db.scalars(select(Document).where(Document.id.in_(ids))):
+            doc.status = "extracted"  # text stays; only classification reruns
+    rlog("re-classifying %d records with %s", len(ids), get_settings().llm_model)
+
+
 def run_analysis_step(rlog: RunLog) -> None:
     """Look for connections across all records (waves, recurring details,
     clusters of similar cases). Failures here never fail the run."""
@@ -463,8 +503,9 @@ def run_pipeline(trigger: str = "manual", sources: list[str] | None = None, limi
                     status = "error"
                     rlog("source %s failed: %s", source.name, exc)
                     log.exception("source %s failed", source.name)
+            _queue_llm_classification(rlog)
             processed, failed = process_pending(rlog, limit=limit, bundles=bundles)
-            if processed or new or updated or not _analysis_exists():
+            if processed or new or updated or not _analysis_exists() or _analysis_outdated():
                 run_analysis_step(rlog)
         except Exception as exc:
             status = "error"

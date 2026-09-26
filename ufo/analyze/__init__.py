@@ -42,8 +42,12 @@ def run_analysis() -> dict:
     """Extract, analyse and store all results. Returns a short summary."""
     with session_scope() as db:
         totals = extract_all(db)
+    if totals["tagging"]["tagged"] or totals["tagging"]["failed"]:
+        log.info("LLM tagging: %(tagged)d tagged, %(cached)d cached, %(failed)d failed (kept rules)", totals["tagging"])
     with session_scope() as db:
         results = compute(db)
+        # a partial run (some LLM calls failed) is retried on the next pipeline run
+        results["tagger"] = totals["tagger"] + (":partial" if totals["tagging"]["failed"] else "")
         db.execute(delete(AnalysisResult))
         now = utcnow()
         for key, data in results.items():
@@ -64,9 +68,15 @@ def load_results(db: Session) -> dict:
 
 
 def analysis_outdated(db: Session) -> bool:
-    """True when results exist but were computed by an older version."""
-    row = db.get(AnalysisResult, "version")
-    return db.scalar(select(func.count()).select_from(AnalysisResult)) > 0 and (row is None or row.data != ANALYSIS_VERSION)
+    """True when results exist but were computed by an older version, or by a
+    different tagger (an LLM key was added, removed or changed)."""
+    from .llm_tags import tagger_id
+
+    if not db.scalar(select(func.count()).select_from(AnalysisResult)):
+        return False
+    version, tagger = db.get(AnalysisResult, "version"), db.get(AnalysisResult, "tagger")
+    return (version is None or version.data != ANALYSIS_VERSION
+            or tagger is None or tagger.data != tagger_id())
 
 
 # ---------------------------------------------------------------------------

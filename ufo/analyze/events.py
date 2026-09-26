@@ -299,8 +299,9 @@ def segment(text: str) -> list[str]:
     return out
 
 
-def accounts_for(units: list[tuple[int, str]]) -> list[Account]:
-    """Tagged accounts from a record's pages (page 0 is the description)."""
+def candidates_for(units: list[tuple[int, str]]) -> list[Account]:
+    """Passages worth tagging: paragraphs of sighting pages (page 0 is the
+    description) where the rules find at least one detail of the phenomenon."""
     out: list[Account] = []
     for page_no, text in units:
         if page_no != 0 and not is_sighting_text(text):
@@ -309,9 +310,19 @@ def accounts_for(units: list[tuple[int, str]]) -> list[Account]:
             if len(_TEMPLATE.findall(chunk)) >= 3:
                 continue
             tags, spans = tag_account(chunk)
-            if sum(1 for t in tags if BY_TAG[t].dim in CORE) >= MIN_TAGS:
+            if any(BY_TAG[t].dim in CORE for t in tags):
                 out.append(Account(page_no, seq, chunk, tags, spans))
     return out
+
+
+def keep(account: Account) -> bool:
+    """An account needs at least two details of the phenomenon to be compared."""
+    return sum(1 for t in account.tags if t in BY_TAG and BY_TAG[t].dim in CORE) >= MIN_TAGS
+
+
+def accounts_for(units: list[tuple[int, str]]) -> list[Account]:
+    """Tagged accounts from a record's pages, using the keyword rules."""
+    return [a for a in candidates_for(units) if keep(a)]
 
 
 def tag_label(key: str) -> str:

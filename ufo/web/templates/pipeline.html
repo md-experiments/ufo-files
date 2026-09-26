@@ -2,7 +2,7 @@
 {% block title %}Pipeline · UFO Files{% endblock %}
 {% block content %}
 <h1>Pipeline</h1>
-<p class="secondary">The pipeline checks the official PURSUE index for new records {% if settings.pipeline_interval_hours == 24 %}once a day{% else %}every {{ settings.pipeline_interval_hours | round(1) }} hours{% endif %}, downloads new files (falling back to the Internet Archive when the government site blocks the request), extracts text page by page with OCR for scanned pages, and classifies each record using <strong>{{ classifier }}</strong>.</p>
+<p class="secondary">The pipeline checks the official PURSUE index for new records {% if settings.pipeline_interval_hours == 24 %}once a day{% else %}every {{ settings.pipeline_interval_hours | round(1) }} hours{% endif %}, downloads new files (falling back to the Internet Archive when the government site blocks the request), extracts text page by page with OCR for scanned pages, and classifies each record using <strong>{{ classifier }}</strong>. {% if settings.llm_available and settings.llm_tagging %}The same model tags sighting accounts with what was observed (keyword rules pick the candidate paragraphs).{% else %}Sighting accounts are tagged by keyword rules; set <code>ANTHROPIC_API_KEY</code> or <code>OPENAI_API_KEY</code> to have an LLM do the classification and tagging.{% endif %}</p>
 
 <section class="tiles">
   {% for s in ['classified', 'extracted', 'downloaded', 'new', 'unavailable', 'failed'] %}
