@@ -100,11 +100,11 @@ def test_openai_classification(env, monkeypatch):
     c = classify_document(record_id="DOW-UAP-PR046", title="Unresolved UAP Report, INDOPACOM, 2024",
                           description="desc", text="[Page 1]\nMISREP text", media_type="pdf",
                           agency="Department of War", location=None, incident_year=None)
-    assert c.classifier == "gpt-5-mini"
+    assert c.classifier == "gpt-6-luna"
     assert c.tags["shape"] == ["orb"] and c.significance == 4
     body = seen["body"]
     assert seen["url"].endswith("/responses")
-    assert body["model"] == "gpt-5-mini" and body["reasoning"] == {"effort": "low"}
+    assert body["model"] == "gpt-6-luna" and body["reasoning"] == {"effort": "none"}
     assert body["text"]["format"]["type"] == "json_schema"
     assert "MISREP text" in json.dumps(body["input"])
 
@@ -115,7 +115,7 @@ def test_provider_follows_available_key(env, monkeypatch):
     _use(monkeypatch)
     assert get_settings().llm_provider is None
     _use(monkeypatch, OPENAI_API_KEY="o")
-    assert (get_settings().llm_provider, get_settings().llm_model) == ("openai", "gpt-5-mini")
+    assert (get_settings().llm_provider, get_settings().llm_model) == ("openai", "gpt-6-luna")
     _use(monkeypatch, OPENAI_API_KEY="o", ANTHROPIC_API_KEY="a")
     assert get_settings().llm_provider == "anthropic"
     _use(monkeypatch, OPENAI_API_KEY="o", ANTHROPIC_API_KEY="a", LLM_PROVIDER="openai", LLM_MODEL="gpt-5")
@@ -155,7 +155,7 @@ def test_llm_event_tagging_is_cached(env, monkeypatch):
     with session_scope() as db:
         assert llm_tags.refine(db, again)["cached"] == 1
     assert len(calls) == 1 and again[0].tags == ["disc", "hover", "silent"]
-    assert llm_tags.tagger_id().startswith("openai:gpt-5-mini")
+    assert llm_tags.tagger_id().startswith("openai:gpt-6-luna")
 
 
 def test_llm_failure_falls_back_to_rules(env, monkeypatch):

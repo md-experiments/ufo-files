@@ -73,6 +73,8 @@ class Settings:
     llm_model_override: str = field(default_factory=lambda: os.environ.get("LLM_MODEL", "").strip())
     llm_tagging: bool = field(default_factory=lambda: _bool("LLM_TAGGING", True))
     llm_workers: int = field(default_factory=lambda: _int("LLM_WORKERS", 4))
+    # OpenAI reasoning effort; gpt-6-luna accepts none/low/medium/high/xhigh/max
+    openai_reasoning_effort: str = field(default_factory=lambda: os.environ.get("OPENAI_REASONING_EFFORT", "none").strip().lower())
     llm_max_chars: int = field(default_factory=lambda: _int("LLM_MAX_CHARS", 300_000))
 
     # Scheduling (web process)
@@ -114,7 +116,7 @@ class Settings:
         return DEFAULT_MODELS.get(self.llm_provider or "anthropic", DEFAULT_MODELS["anthropic"])
 
 
-DEFAULT_MODELS = {"anthropic": "claude-opus-5", "openai": "gpt-5-mini"}
+DEFAULT_MODELS = {"anthropic": "claude-opus-5", "openai": "gpt-6-luna"}
 
 _settings: Settings | None = None
 

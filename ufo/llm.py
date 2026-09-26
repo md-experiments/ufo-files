@@ -58,7 +58,7 @@ def _anthropic(system: str, prompt: str, schema: type[T], max_tokens: int) -> T 
 
 
 def _reasoning_model(name: str) -> bool:
-    return name.startswith(("gpt-5", "o1", "o3", "o4"))
+    return name.startswith(("gpt-5", "gpt-6", "o1", "o3", "o4"))
 
 
 def _openai(system: str, prompt: str, schema: type[T], max_tokens: int) -> T | None:
@@ -66,7 +66,8 @@ def _openai(system: str, prompt: str, schema: type[T], max_tokens: int) -> T | N
 
     client = openai.OpenAI(max_retries=4)
     name = model()
-    extra = {"reasoning": {"effort": "low"}} if _reasoning_model(name) else {}
+    effort = get_settings().openai_reasoning_effort
+    extra = {"reasoning": {"effort": effort}} if _reasoning_model(name) and effort else {}
     response = client.responses.parse(
         model=name,
         instructions=system,

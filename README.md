@@ -76,7 +76,7 @@ taxonomy (`ufo/classify/taxonomy.py`):
   result.
   * Provider: whichever key is present. `ANTHROPIC_API_KEY` selects **Claude**
     (`claude-opus-5`, with the API's server-side refusal fallback).
-    `OPENAI_API_KEY` selects **OpenAI** (`gpt-5-mini`). With both set, Claude
+    `OPENAI_API_KEY` selects **OpenAI** (`gpt-6-luna`, reasoning effort `none`). With both set, Claude
     is used unless `LLM_PROVIDER=openai`.
   * When a key is added or the model changes, records classified by the rules
     or another model are re-classified on the next start.
@@ -233,7 +233,8 @@ Keep one replica. The scheduler runs inside the web process.
 | `ANTHROPIC_API_KEY` | — | enables Claude for classification and event tagging |
 | `OPENAI_API_KEY` | — | enables OpenAI for classification and event tagging |
 | `LLM_PROVIDER` | `auto` | `auto` (the key that is set; Claude if both), `anthropic` or `openai` |
-| `LLM_MODEL` | `claude-opus-5` / `gpt-5-mini` | model for the active provider |
+| `LLM_MODEL` | `claude-opus-5` / `gpt-6-luna` | model for the active provider |
+| `OPENAI_REASONING_EFFORT` | `none` | thinking level for OpenAI reasoning models (`none`, `low`, `medium`, `high`, …) |
 | `LLM_TAGGING` | `true` | let the LLM tag sighting accounts (otherwise keyword rules) |
 | `LLM_WORKERS` | `4` | concurrent tagging requests |
 | `LLM_MAX_CHARS` | `300000` | longer texts are sent as head + tail, and the record is flagged `llm_input_truncated` |
