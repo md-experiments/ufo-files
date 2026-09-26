@@ -281,3 +281,27 @@ def test_admin_endpoints_need_token(fake, monkeypatch):
         config.reset_settings()
         assert client.post("/api/analysis/run", headers={"Authorization": "Bearer nope"}).status_code == 401
         assert client.post("/api/analysis/run", headers={"Authorization": "Bearer t0k"}).status_code == 202
+
+
+def test_llm_classification_runs_in_parallel(fake, monkeypatch):
+    import time
+
+    from ufo import config
+
+    for k, v in {"OPENAI_API_KEY": "x", "LLM_ENABLED": "true", "LLM_WORKERS": "4", "LLM_TAGGING": "false"}.items():
+        monkeypatch.setenv(k, v)
+    config.reset_settings()
+    calls = []
+
+    def slow(meta, text):
+        calls.append(meta["record_id"])
+        time.sleep(0.3)
+        return None
+
+    monkeypatch.setattr("ufo.classify.llm.classify_llm", slow)
+    FakeSource.records = [rec(f"V{i}", date(2026, 5, 8), media="video", url=None, desc=f"An orb {i}.")
+                          for i in range(12)]
+    t = time.time()
+    assert pipeline.run_pipeline()
+    assert len(calls) == 12
+    assert time.time() - t < 12 * 0.3  # four at a time, not one after another

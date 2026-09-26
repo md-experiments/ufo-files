@@ -258,6 +258,8 @@ def process_pending(
     rlog("processing %d records", len(rows))
     failed: set[int] = set()
     ok = 0
+    count_lock = threading.Lock()
+    extract_lock = threading.Lock()  # OCR has its own process pool; one document at a time
 
     def finish(doc_id: int) -> None:
         """Extract (if needed) and classify one record, isolating failures."""
@@ -267,16 +269,19 @@ def process_pending(
                 doc = db.get(Document, doc_id)
                 status, media = doc.status, doc.media_type
             if media == "pdf" and status == "downloaded":
-                _extract(doc_id)
+                with extract_lock:
+                    _extract(doc_id)
             elif media == "pdf" and status != "extracted":
                 return  # no file (e.g. no link published)
             _classify(doc_id)
-            ok += 1
-            if ok % 10 == 0:
-                rlog("processed %d/%d", ok, len(rows))
+            with count_lock:
+                ok += 1
+                if ok % 10 == 0:
+                    rlog("processed %d/%d", ok, len(rows))
         except Exception as exc:
             log.exception("processing doc %d failed", doc_id)
-            failed.add(doc_id)
+            with count_lock:
+                failed.add(doc_id)
             with session_scope() as db:
                 doc = db.get(Document, doc_id)
                 doc.status, doc.error = "failed", f"{type(exc).__name__}: {exc}"[:2000]
@@ -286,21 +291,27 @@ def process_pending(
     # Downloads run in the background from the start. Meanwhile, records that
     # need no download (videos, images, already-downloaded PDFs) are processed,
     # then each PDF is extracted and classified as soon as its file lands, so
-    # the site fills up early on a fresh install.
-    with ThreadPoolExecutor(max_workers=max(1, s.download_workers)) as pool:
+    # the site fills up early on a fresh install. With an LLM, several records
+    # are classified at once (LLM_WORKERS), since each call waits on the API.
+    workers = max(1, s.llm_workers) if s.llm_available else 1
+    with ThreadPoolExecutor(max_workers=max(1, s.download_workers)) as pool, \
+            ThreadPoolExecutor(max_workers=workers) as work:
         if needs_file:
             rlog("downloading %d files", len(needs_file))
+        if workers > 1:
+            rlog("classifying with %d parallel workers", workers)
         futures = [pool.submit(_download, i) for i in sorted(needs_file)]
-        for r in rows:
-            if r.id not in needs_file:
-                finish(r.id)
+        jobs = [work.submit(finish, r.id) for r in rows if r.id not in needs_file]
         for fut in as_completed(futures):
             doc_id, err = fut.result()
             if err:
-                failed.add(doc_id)
+                with count_lock:
+                    failed.add(doc_id)
                 rlog("download failed for doc %d: %s", doc_id, err[:300])
             else:
-                finish(doc_id)
+                jobs.append(work.submit(finish, doc_id))
+        for j in jobs:
+            j.result()
     missing = [i for i in failed if i in needs_file]
     if missing and bundles:
         for doc_id in _from_bundles(missing, bundles, rlog):
