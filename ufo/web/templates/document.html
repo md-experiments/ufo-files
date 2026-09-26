@@ -46,6 +46,22 @@
     </div>
     {% endif %}
 
+    {% if patterns.accounts %}
+    <div class="section">
+      <h2>Sighting accounts <small class="muted">{{ patterns.n_accounts }} paragraph{{ 's' if patterns.n_accounts != 1 }} tagged with what was observed</small></h2>
+      <div class="found-details">
+        {% for a in patterns.accounts %}
+        <details class="page-text">
+          <summary><span class="small"><a href="#p{{ a.page }}">{{ 'Page ' ~ a.page if a.page else "Description" }}</a></span>
+            {% for c in a.chips %}<span class="chip ev-chip dim-{{ c.dim }}" title="{{ c.dim_label }}">{{ c.label }}</span>{% endfor %}</summary>
+          <blockquote class="ev-quote pad">{{ a.excerpt }}</blockquote>
+        </details>
+        {% endfor %}
+        {% if patterns.n_accounts > patterns.accounts | length %}<p class="muted small">and {{ patterns.n_accounts - patterns.accounts | length }} more.</p>{% endif %}
+      </div>
+    </div>
+    {% endif %}
+
     {% if doc.pages %}
     <div class="section reader-head">
       <h2>Extracted text</h2>
@@ -93,17 +109,17 @@
       <div><h3>People & organizations</h3><div class="chips">{% for l in doc.classification.people_and_organizations %}<span class="chip">{{ l }}</span>{% endfor %}</div></div>
       {% endif %}
     </div>
-    {% if patterns.similar or patterns.cluster %}
+    {% if patterns.similar or patterns.types %}
     <div class="card" style="margin-top: 12px">
       <h2>Similar records elsewhere</h2>
-      {% if patterns.cluster %}
-      <p class="small"><a href="/patterns#clusters"><span class="cluster-no sm">{{ patterns.cluster.id }}</span> Cluster: {{ patterns.cluster.name }}</a> <span class="muted">({{ patterns.cluster.size }} records)</span></p>
+      {% if patterns.types %}
+      <div class="small" style="margin-bottom:8px">{% for t in patterns.types %}<a href="/patterns/types/{{ t.id }}"><span class="cluster-no sm">{{ t.id }}</span>{{ t.name }}</a> <span class="muted">({{ t.n }})</span>{{ '<br>' | safe if not loop.last }}{% endfor %}</div>
       {% endif %}
       <ul class="similar-list">
         {% for s in patterns.similar %}
         <li><a href="/documents/{{ s.doc.id }}">{{ s.doc.title | truncate(80) }}</a>
-          <div class="muted small">{{ s.doc.agency or '' }}{% if s.doc.year %} · {{ s.doc.year }}{% endif %} · {{ (s.score * 100) | round | int }}% similar · <a href="{{ url('/patterns/compare', a=doc.id, b=s.doc.id) }}">compare</a></div>
-          {% if s.shared %}<div class="chips">{% for t in s.shared[:4] %}<span class="chip">{{ t }}</span>{% endfor %}</div>{% endif %}</li>
+          <div class="muted small">{{ s.doc.agency or '' }}{% if s.doc.year %} · {{ s.doc.year }}{% endif %} · <a href="{{ url('/patterns/compare', a=doc.id, b=s.doc.id) }}">compare accounts</a></div>
+          {% if s.shared %}<div class="chips">{% for t in s.shared[:5] %}<span class="chip">{{ t }}</span>{% endfor %}</div>{% endif %}</li>
         {% endfor %}
       </ul>
     </div>

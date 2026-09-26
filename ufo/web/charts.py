@@ -171,23 +171,24 @@ def us_tilemap(grid: list[dict], link: str = "/patterns/evidence?place=US-{code}
 
 def case_map(points: list[dict], clusters: list[dict], titles: dict[int, str], max_badges: int = 14,
              narrow: bool = False) -> Markup:
-    """Every record as a dot; similar records sit close together. Cluster
+    """Every sighting account as a dot; accounts describing similar events sit close together. Type
     numbers are drawn at their centres; hovering a cluster highlights it."""
     w, h, r, br, bf = (400, 480, 3.4, 10, 10) if narrow else (1000, 620, 5, 13, 12)
-    parts = [f'<svg class="chart casemap{" narrow" if narrow else ""}" viewBox="0 0 {w} {h}" role="img" aria-label="Map of cases: similar records are close together">']
+    parts = [f'<svg class="chart casemap{" narrow" if narrow else ""}" viewBox="0 0 {w} {h}" role="img" aria-label="Map of sighting accounts: accounts describing similar events are close together">']
     for p in points:
         x, y = p["x"] * w, p["y"] * h
         c = p.get("cluster")
         cls = "pt in" if c else "pt"
         attr = f' data-c="{c}"' if c else ""
         title = _e(titles.get(p["id"], ""))
-        parts.append(f'<a href="/documents/{p["id"]}"><circle class="{cls}" fill="{"#2a78d6" if c else "#77766f"}" fill-opacity="{0.6 if c else 0.35}"{attr} cx="{x:.1f}" cy="{y:.1f}" r="{r}">'
+        href = p.get("href") or f'/documents/{p["id"]}'
+        parts.append(f'<a href="{href}"><circle class="{cls}" fill="{"#2a78d6" if c else "#77766f"}" fill-opacity="{0.6 if c else 0.35}"{attr} cx="{x:.1f}" cy="{y:.1f}" r="{r}">'
                      f'<title>{title}</title></circle></a>')
     for c in clusters[:max_badges]:
         x, y = c["centroid"][0] * w, c["centroid"][1] * h
         parts.append(f'<g class="badge" data-c="{c["id"]}" tabindex="0"><circle fill="#fcfcfb" stroke="#0b0b0b" stroke-width="1.5" cx="{x:.1f}" cy="{y:.1f}" r="{br}"/>'
                      f'<text fill="#0b0b0b" font-size="{bf}" font-weight="700" x="{x:.1f}" y="{y + bf * 0.37:.1f}" text-anchor="middle">{c["id"]}</text>'
-                     f'<title>{_e(c["name"])} ({c["size"]} records)</title></g>')
+                     f'<title>{_e(c["name"])} ({c["size"]} accounts)</title></g>')
     parts.append("</svg>")
     return Markup("".join(parts))
 

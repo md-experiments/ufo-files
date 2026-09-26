@@ -158,6 +158,24 @@ class Observation(Base):
     snippet: Mapped[str] = mapped_column(Text)
 
 
+class Account(Base):
+    """A sighting account: a paragraph (or report form) describing one
+    observation, tagged with what was seen and how it behaved.
+
+    ``tags`` are event tag keys (see ``ufo.analyze.events``); ``spans`` holds
+    ``[tag, start, end]`` for the words each tag was read from."""
+
+    __tablename__ = "accounts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), index=True)
+    page_no: Mapped[int] = mapped_column(Integer)
+    seq: Mapped[int] = mapped_column(Integer, default=0)
+    text: Mapped[str] = mapped_column(Text)
+    tags: Mapped[list] = mapped_column(JSON)
+    spans: Mapped[list] = mapped_column(JSON)
+
+
 class Mention(Base):
     """A date or place mentioned on a sighting page (or the record's own
     incident date/location, with ``page_no`` 0)."""

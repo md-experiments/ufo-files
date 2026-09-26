@@ -3,14 +3,15 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 
-from sqlalchemy import and_, func, select
+from markupsafe import Markup, escape
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..analyze import load_results
-from ..analyze.features import BY_KEY, GROUPS, OBSERVABLES
+from ..analyze.features import BY_KEY, GROUPS
 from ..analyze.places import place_label
 from ..classify.taxonomy import FACETS, label
-from ..db import Document, Mention, Observation, Release, Tag
+from ..db import Account, Document, Mention, Observation, Release, Tag
 from . import charts
 
 MEDIA_CLS = {"pdf": "s-pdf", "video": "s-video", "image": "s-image", "audio": "s-audio"}
@@ -56,19 +57,22 @@ def patterns_context(db: Session) -> dict:
         per_row=True, row_link="/patterns/evidence?feature={key}",
     )
 
-    clusters = r["clusters"]
-    member_ids = {m for c in clusters for m in c["members"]}
-    link_ids = {x for l in r["links"] for x in (l["a"], l["b"])}
-    titles = doc_titles(db, member_ids | link_ids | {p["id"] for p in r["map"]})
-    for c in clusters:
-        c["docs"] = [titles[m] for m in c["members"] if m in titles]
-    links = []
-    for l in r["links"]:
-        if l["a"] in titles and l["b"] in titles:
-            links.append({**l, "da": titles[l["a"]], "db": titles[l["b"]],
-                          "shared_labels": [tag_label(t) for t in l["shared"]]})
-
-    map_titles = {i: f'{t["record_id"]}: {t["title"]}' for i, t in titles.items()}
+    types = [c for c in r.get("clusters", []) if "signature" in c]  # older results have no signatures
+    ex_ids = {a for t in types for a in t["accounts"][:40]}
+    accs = _accounts(db, ex_ids)
+    titles = doc_titles(db, {a.document_id for a in accs.values()} | {p["doc"] for p in r["map"] if "doc" in p})
+    for t in types:
+        t["name"] = type_name(t)
+        t["chips"] = ev_chips(t["signature"])
+        t["also_labels"] = [(ev_label(k), share) for k, share in t.get("also", [])[:5]]
+        t["examples"] = _examples(t, accs, titles, k=2)
+    links = _link_views(db, [l for l in r["links"] if "acc_a" in l])
+    points = [p for p in r["map"] if "doc" in p]
+    for p in points:
+        p["href"] = f'/documents/{p["doc"]}' + (f'#p{p["page"]}' if p["page"] else "")
+    map_titles = {p["id"]: f'{(titles.get(p["doc"]) or {}).get("title", "")} · '
+                           f'{"page " + str(p["page"]) if p["page"] else "description"} — '
+                           + ", ".join(ev_label(k) for k in p.get("tags", [])) for p in points}
     cooc = r["cooccurrence"]
     top_pairs = sorted(cooc, key=lambda p: (-p["lift"]))[:14]
     max_lift = max((p["lift"] for p in top_pairs), default=1)
@@ -95,10 +99,11 @@ def patterns_context(db: Session) -> dict:
         "world": r["places"]["world"],
         "top_places": r["places"]["top"],
         "place_decades": r["places"]["decades"],
-        "clusters": clusters,
+        "clusters": types,
+        "accounts": r.get("accounts", 0),
         "case_map": charts.responsive(
-            charts.case_map(r["map"], clusters, map_titles),
-            charts.case_map(r["map"], clusters, map_titles, narrow=True)),
+            charts.case_map(points, types, map_titles),
+            charts.case_map(points, types, map_titles, narrow=True)),
         "links": links,
         "rare": rare,
     }
@@ -156,12 +161,16 @@ def document_patterns(db: Session, doc: Document) -> dict:
     details = [{"key": k, "label": BY_KEY[k].label, "group": GROUPS[BY_KEY[k].group], "pages": v}
                for k, v in sorted(per_feature.items(), key=lambda kv: -len(kv[1])) if k in BY_KEY]
     r = load_results(db)
-    sim = (r.get("similar") or {}).get(str(doc.id), [])
-    titles = doc_titles(db, [s[0] for s in sim])
-    similar = [{"doc": titles[s[0]], "score": s[1], "shared": [tag_label(t) for t in s[2]]}
-               for s in sim if s[0] in titles]
-    cluster = next((c for c in r.get("clusters", []) if doc.id in c["members"]), None)
-    return {"details": details, "similar": similar, "cluster": cluster}
+    sim = [x for x in (r.get("similar") or {}).get(str(doc.id), []) if len(x) >= 5]
+    titles = doc_titles(db, [x[0] for x in sim])
+    similar = [{"doc": titles[x[0]], "score": x[1], "shared": [ev_label(t) for t in x[2]]} for x in sim if x[0] in titles]
+    own = db.scalars(select(Account).where(Account.document_id == doc.id).order_by(Account.page_no, Account.seq)).all()
+    own_ids = {a.id for a in own}
+    types = [{"id": t["id"], "name": type_name(t), "n": sum(1 for a in t["accounts"] if a in own_ids)}
+             for t in r.get("clusters", []) if "signature" in t and own_ids & set(t["accounts"])]
+    accounts = [{"page": a.page_no, "chips": ev_chips(a.tags), "excerpt": event_excerpt(a.text, a.spans, width=700)}
+                for a in own[:40]]
+    return {"details": details, "similar": similar, "types": types, "accounts": accounts, "n_accounts": len(own)}
 
 
 def releases_visuals(db: Session) -> dict:
@@ -206,67 +215,173 @@ def releases_visuals(db: Session) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Comparing two linked records
+# Sighting accounts: excerpts, types, comparisons
 # ---------------------------------------------------------------------------
 
-_match_cache: dict[tuple, list] = {}
-_boiler_cache: dict[str, set] = {}
+def event_excerpt(text: str, spans: list, focus: set[str] | None = None, width: int = 900) -> Markup:
+    """The parts of an account around its tagged details, with each detail
+    marked; ``focus`` details (e.g. the ones two accounts share) stand out.
+    Details far apart get separate windows joined by an ellipsis."""
+    text = text or ""
+    focus = focus or set()
+    spans = sorted(([t, s, e] for t, s, e in spans if 0 <= s < e <= len(text)), key=lambda x: (x[1], -x[2]))
+    key_spans = [x for x in spans if x[0] in focus] or spans
+    ctx = max(60, min(200, width // 5))
+    windows: list[list[int]] = []
+    for _, a, b in sorted(key_spans, key=lambda x: x[1]):
+        lo, hi = max(0, a - ctx), min(len(text), b + ctx)
+        if windows and lo <= windows[-1][1] + 40:
+            windows[-1][1] = max(windows[-1][1], hi)
+        else:
+            windows.append([lo, hi])
+    if not windows:
+        windows = [[0, min(len(text), width)]]
+    for w in windows:  # widen to word boundaries
+        while w[0] > 0 and text[w[0] - 1].isalnum():
+            w[0] -= 1
+        while w[1] < len(text) and text[w[1]].isalnum():
+            w[1] += 1
+    out = []
+    for n, (lo, hi) in enumerate(windows):
+        out.append("…" if lo > 0 else "")
+        pos = lo
+        for t, a, b in spans:
+            if a < pos or b > hi:
+                continue  # overlaps a detail already marked, or outside this window
+            over = [x for x in spans if x[1] < b and a < x[2]]
+            labels = " · ".join(ev_label(x[0]) for x in over)
+            cls = "ev hit" if any(x[0] in focus for x in over) else "ev"
+            out += [str(escape(text[pos:a])), f'<mark class="{cls}" title="{escape(labels)}">', str(escape(text[a:b])), "</mark>"]
+            pos = b
+        out.append(str(escape(text[pos:hi])))
+        out.append("…" if hi < len(text) else "")
+        if n < len(windows) - 1:
+            out.append(" ")
+    return Markup("".join(out))
 
 
-def _boiler(db: Session, stamp: str) -> set[str]:
-    from ..analyze import boilerplate_sentences
+def ev_label(key: str) -> str:
+    from ..analyze.events import tag_label as _l
 
-    if stamp not in _boiler_cache:
-        _boiler_cache.clear()
-        _boiler_cache[stamp] = boilerplate_sentences(d or "" for d in db.scalars(select(Document.description)))
-    return _boiler_cache[stamp]
+    return _l(key)
 
 
-def _matches(db: Session, a: Document, b: Document, stamp: str) -> list[dict]:
-    from ..analyze.matching import load_passages, match
+def ev_chips(keys) -> list[dict]:
+    """Tags as chips, in dimension order, with their dimension's label."""
+    from ..analyze.events import BY_TAG, DIMENSIONS
 
-    key = (a.id, b.id, stamp)
-    if key not in _match_cache:
-        if len(_match_cache) > 200:
-            _match_cache.clear()
-        _match_cache[key] = match(load_passages(db, a), load_passages(db, b), limit=12, boiler=_boiler(db, stamp))
-    return _match_cache[key]
+    order = list(DIMENSIONS)
+    ks = sorted((k for k in keys if k in BY_TAG), key=lambda k: order.index(BY_TAG[k].dim))
+    return [{"key": k, "label": BY_TAG[k].label, "dim": BY_TAG[k].dim, "dim_label": DIMENSIONS[BY_TAG[k].dim][0],
+             "evidence": k in BY_KEY} for k in ks]
 
 
-def _pages(pages: list[int]) -> list[int]:
-    return sorted(set(pages))
+def type_name(t: dict) -> str:
+    return " · ".join(ev_label(k) for k in t["signature"])
+
+
+def _accounts(db: Session, ids) -> dict[int, Account]:
+    ids = list({int(i) for i in ids})
+    out = {}
+    for chunk in (ids[i:i + 500] for i in range(0, len(ids), 500)):
+        for a in db.scalars(select(Account).where(Account.id.in_(chunk))):
+            out[a.id] = a
+    return out
+
+
+def _examples(t: dict, accs: dict[int, Account], titles: dict[int, dict], k: int = 3) -> list[dict]:
+    """A few accounts of a type from different records, different agencies first."""
+    seen_docs, seen_agencies, picks = set(), set(), []
+    for rnd in (0, 1):
+        for aid in t["accounts"]:
+            a = accs.get(aid)
+            if not a or a.document_id in seen_docs or len(picks) >= k:
+                continue
+            ag = (titles.get(a.document_id) or {}).get("agency")
+            if rnd == 0 and ag in seen_agencies:
+                continue
+            seen_docs.add(a.document_id)
+            seen_agencies.add(ag)
+            picks.append({"doc": titles.get(a.document_id), "page": a.page_no,
+                          "excerpt": event_excerpt(a.text, a.spans, set(t["signature"]), width=320)})
+    return picks
+
+
+def sighting_type(db: Session, type_id: int) -> dict | None:
+    r = load_results(db)
+    t = next((c for c in r.get("clusters", []) if c["id"] == type_id), None)
+    if not t or "signature" not in t:
+        return None
+    accs = _accounts(db, t["accounts"])
+    titles = doc_titles(db, {a.document_id for a in accs.values()})
+    by_doc: dict[int, list] = defaultdict(list)
+    for aid in t["accounts"]:
+        a = accs.get(aid)
+        if a:
+            by_doc[a.document_id].append({"page": a.page_no, "chips": ev_chips(set(a.tags) - set(t["signature"])),
+                                          "excerpt": event_excerpt(a.text, a.spans, set(t["signature"]))})
+    records = sorted(({"doc": titles[d], "accounts": v} for d, v in by_doc.items() if d in titles),
+                     key=lambda x: ((x["doc"]["year"] or 9999), x["doc"]["title"]))
+    return {"type": t, "name": type_name(t), "signature": ev_chips(t["signature"]),
+            "also": [(ev_label(k), share) for k, share in t.get("also", [])], "records": records}
+
+
+def _mentions(db: Session, doc_id: int, page: int) -> tuple[set[str], set[str]]:
+    dates, places = set(), set()
+    for kind, value, prec in db.execute(select(Mention.kind, Mention.value, Mention.precision)
+                                        .where(Mention.document_id == doc_id, Mention.page_no == page)):
+        if kind == "place":
+            places.add(value)
+        elif prec in ("day", "month"):
+            dates.add(value if prec == "day" else value[:7])
+    return dates, places
 
 
 def compare(db: Session, a_id: int, b_id: int) -> dict | None:
-    """Everything two records have in common: matching passages, shared
-    details with the lines they come from, shared places and dates."""
+    """What two records' sighting accounts have in common."""
+    from ..analyze.signatures import MATCH_SCORE, pair_detail, same_report
+
     a, b = db.get(Document, a_id), db.get(Document, b_id)
     if not a or not b or a.id == b.id:
         return None
     r = load_results(db)
-    stamp = str(r.get("computed_at") or "")
+    w = r.get("tag_weights") or {}
     link = next((l for l in r.get("links", []) if {l["a"], l["b"]} == {a.id, b.id}), None)
-    score = link["score"] if link else None
-    if score is None:
-        for x, y in ((a, b), (b, a)):
-            hit = next((s for s in (r.get("similar") or {}).get(str(x.id), []) if s[0] == y.id), None)
-            if hit:
-                score = hit[1]
-                break
+    acc_a = db.scalars(select(Account).where(Account.document_id == a.id).order_by(Account.page_no, Account.seq)).all()
+    acc_b = db.scalars(select(Account).where(Account.document_id == b.id).order_by(Account.page_no, Account.seq)).all()
 
-    # tags side by side
-    tags: dict[int, dict[str, set[str]]] = {a.id: defaultdict(set), b.id: defaultdict(set)}
-    for d, facet, value in db.execute(select(Tag.document_id, Tag.facet, Tag.value)
-                                      .where(Tag.document_id.in_([a.id, b.id]))):
-        tags[d][facet].add(value)
-    facets = []
-    for facet in ("kind", "topic", "shape", "domain", "sensor", "witness", "region", "era", "assessment"):
-        va, vb = tags[a.id].get(facet, set()), tags[b.id].get(facet, set())
-        if va or vb:
-            facets.append({"label": _facet_label(facet),
-                           "a": [(label(facet, v), v in vb) for v in sorted(va)],
-                           "b": [(label(facet, v), v in va) for v in sorted(vb)],
-                           "same": bool(va & vb)})
+    cands = []
+    for x in acc_a:
+        for y in acc_b:
+            d = pair_detail(x.tags, y.tags, w)
+            if d and d["score"] >= MATCH_SCORE * 0.8:
+                cands.append((d["score"], x, y, d))
+    cands.sort(key=lambda c: -c[0])
+    used_a, used_b, pairs = set(), set(), []
+    for score, x, y, d in cands:
+        if x.id in used_a or y.id in used_b:
+            continue
+        used_a.add(x.id)
+        used_b.add(y.id)
+        shared = set(d["shared"])
+        da, pa = _mentions(db, a.id, x.page_no)
+        dbb, pb = _mentions(db, b.id, y.page_no)
+        pairs.append({
+            "score": score, "shared": ev_chips(shared),
+            "only_a": ev_chips(set(x.tags) - shared), "only_b": ev_chips(set(y.tags) - shared),
+            "a": {"page": x.page_no, "excerpt": event_excerpt(x.text, x.spans, shared)},
+            "b": {"page": y.page_no, "excerpt": event_excerpt(y.text, y.spans, shared)},
+            "same_report": same_report(x.text, y.text),
+            "dates": [_date_label(v) for v in sorted(da & dbb)],
+            "places": [place_label(v) for v in sorted(pa & pb)],
+        })
+        if len(pairs) >= 8:
+            break
+
+    types = r.get("clusters", [])
+    ta = {t["id"] for t in types for i in t["accounts"] if i in {x.id for x in acc_a}}
+    tb = {t["id"] for t in types for i in t["accounts"] if i in {y.id for y in acc_b}}
+    both_types = [{"id": t["id"], "name": type_name(t)} for t in types if t["id"] in ta & tb]
 
     def norm(s):
         return (s or "").strip().lower()
@@ -281,55 +396,14 @@ def compare(db: Session, a_id: int, b_id: int) -> dict | None:
         {"label": "Released", "a": a.release.label if a.release else "—", "b": b.release.label if b.release else "—",
          "same": bool(a.release_id) and a.release_id == b.release_id},
         {"label": "Format", "a": _fmt(a), "b": _fmt(b), "same": False},
+        {"label": "Sighting accounts found", "a": str(len(acc_a)), "b": str(len(acc_b)), "same": False},
     ]
-
-    # observed details both records report, with the lines they come from
-    obs: dict[int, dict[str, list]] = {a.id: defaultdict(list), b.id: defaultdict(list)}
-    for d, p, f, snip in db.execute(select(Observation.document_id, Observation.page_no, Observation.feature,
-                                           Observation.snippet).where(Observation.document_id.in_([a.id, b.id]))
-                                    .order_by(Observation.page_no)):
-        obs[d][f].append({"page": p, "snippet": snip})
-    shared_obs = [{"key": f, "label": BY_KEY[f].label, "group": GROUPS[BY_KEY[f].group],
-                   "a": obs[a.id][f][:3], "b": obs[b.id][f][:3],
-                   "na": len(obs[a.id][f]), "nb": len(obs[b.id][f])}
-                  for f in sorted(set(obs[a.id]) & set(obs[b.id]), key=lambda f: BY_KEY[f].label) if f in BY_KEY]
-    only_a = [(f, BY_KEY[f].label) for f in sorted(set(obs[a.id]) - set(obs[b.id])) if f in BY_KEY]
-    only_b = [(f, BY_KEY[f].label) for f in sorted(set(obs[b.id]) - set(obs[a.id])) if f in BY_KEY]
-
-    # places and dates written in both
-    men: dict[tuple[int, str], dict[str, list]] = defaultdict(lambda: defaultdict(list))
-    for d, p, kind, value, prec in db.execute(select(Mention.document_id, Mention.page_no, Mention.kind, Mention.value,
-                                                     Mention.precision).where(Mention.document_id.in_([a.id, b.id]))):
-        if kind == "date":
-            if prec == "year":
-                continue
-            value = value[:7] if prec == "month" else value
-        men[(d, kind)][value].append(p)
-
-    def both(kind: str):
-        ma, mb = men[(a.id, kind)], men[(b.id, kind)]
-        return [(v, _pages(ma[v]), _pages(mb[v])) for v in sorted(set(ma) & set(mb))]
-
-    places = [{"key": v, "label": place_label(v), "a": pa, "b": pb} for v, pa, pb in both("place")]
-    dates = [{"value": v, "label": _date_label(v), "a": pa, "b": pb} for v, pa, pb in both("date")]
-    matches = _matches(db, a, b, stamp)
-    cluster_a = next((c for c in r.get("clusters", []) if a.id in c["members"]), None)
-    cluster_b = next((c for c in r.get("clusters", []) if b.id in c["members"]), None)
     return {
-        "a": a, "b": b, "score": score, "link": link,
+        "a": a, "b": b, "link": link, "pairs": pairs, "facts": facts, "both_types": both_types,
+        "n_a": len(acc_a), "n_b": len(acc_b),
         "cross_agency": bool(a.agency and b.agency and a.agency != b.agency),
         "years_apart": abs(a.incident_year - b.incident_year) if a.incident_year and b.incident_year else None,
-        "matches": matches, "facts": facts, "facets": facets,
-        "shared_obs": shared_obs, "only_a": only_a, "only_b": only_b,
-        "places": places, "dates": dates,
-        "same_cluster": cluster_a if cluster_a and cluster_a is cluster_b else None,
     }
-
-
-def _facet_label(facet: str) -> str:
-    from ..classify.taxonomy import FACET_LABELS
-
-    return FACET_LABELS.get(facet, facet.title())
 
 
 def _fmt(d: Document) -> str:
@@ -349,11 +423,23 @@ def _date_label(v: str) -> str:
 
 
 def links_page(db: Session) -> dict:
-    """All discovered connections, each with its strongest matching passage."""
+    """All connections, each with its best-matching pair of accounts."""
     r = load_results(db)
-    links = r.get("links", [])
+    links = _link_views(db, r.get("links", []))
+    return {"links": links, "computed_at": r.get("computed_at"),
+            "same_report": sum(1 for l in links if l.get("same_report"))}
+
+
+def _link_views(db: Session, links: list[dict]) -> list[dict]:
     titles = doc_titles(db, {x for l in links for x in (l["a"], l["b"])})
-    out = [{**l, "da": titles[l["a"]], "db": titles[l["b"]], "shared_labels": [tag_label(t) for t in l["shared"]]}
-           for l in links if l["a"] in titles and l["b"] in titles]
-    return {"links": out, "computed_at": r.get("computed_at"),
-            "with_text": sum(1 for l in out if l.get("matches"))}
+    accs = _accounts(db, {x for l in links for x in (l.get("acc_a"), l.get("acc_b")) if x})
+    out = []
+    for l in links:
+        if l["a"] not in titles or l["b"] not in titles:
+            continue
+        xa, xb = accs.get(l.get("acc_a")), accs.get(l.get("acc_b"))
+        shared = set(l.get("shared", []))
+        out.append({**l, "da": titles[l["a"]], "db": titles[l["b"]], "chips": ev_chips(shared),
+                    "ea": {"page": xa.page_no, "excerpt": event_excerpt(xa.text, xa.spans, shared, width=360)} if xa else None,
+                    "eb": {"page": xb.page_no, "excerpt": event_excerpt(xb.text, xb.spans, shared, width=360)} if xb else None})
+    return out

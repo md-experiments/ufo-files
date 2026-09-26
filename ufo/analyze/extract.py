@@ -6,8 +6,9 @@ from datetime import date
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, selectinload
 
-from ..db import Document, Mention, Observation
+from ..db import Account, Document, Mention, Observation
 from .dates import find_dates
+from .events import accounts_for
 from .features import find_observables, is_sighting_text
 from .places import find_places, location_places
 
@@ -28,6 +29,9 @@ def extract_document(db: Session, doc: Document) -> tuple[int, int]:
     """Replace ``doc``'s observations and mentions. Returns (sighting units, observations)."""
     db.execute(delete(Observation).where(Observation.document_id == doc.id))
     db.execute(delete(Mention).where(Mention.document_id == doc.id))
+    db.execute(delete(Account).where(Account.document_id == doc.id))
+    for a in accounts_for(units(doc)):
+        db.add(Account(document_id=doc.id, page_no=a.page_no, seq=a.seq, text=a.text, tags=a.tags, spans=a.spans))
     max_date = doc.release.release_date if doc.release else date.today()
     sighting_units = n_obs = 0
     for page_no, text in units(doc):

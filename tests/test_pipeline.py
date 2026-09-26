@@ -234,11 +234,14 @@ def test_analysis_stage_and_patterns_pages(fake):
             assert resp.status_code == 200, (path, resp.text[-800:])
         assert "Patterns in the UFO files" in client.get("/patterns").text
         assert client.get("/patterns/evidence").status_code == 400
-        # comparing two records (their shared sentences repeat in 12 records, so
-        # they count as boilerplate; matching itself is tested in test_analyze)
         cmp = client.get("/patterns/compare?a=1&b=2")
         assert cmp.status_code == 200, cmp.text[-800:]
-        assert "Matching passages" in cmp.text and "Side by side" in cmp.text
+        assert "Matching accounts" in cmp.text
+        assert "Sighting accounts" in client.get("/documents/1").text  # the tagged paragraphs
+        r = client.get("/api/patterns").json()
+        for t in r["clusters"]:
+            assert client.get(f"/patterns/types/{t['id']}").status_code == 200
+        assert client.get("/patterns/types/999").status_code == 404
         assert client.get("/patterns/links").status_code == 200
         assert client.get("/patterns/compare?a=1&b=1").status_code == 404
 

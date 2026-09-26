@@ -7,56 +7,35 @@ After new records are processed, this stage
 2. finds *waves* — periods when many more reports were made than usual — and
    what distinguished them;
 3. measures which details tend to be reported together;
-4. links similar records across different collections and groups them into
-   clusters of similar cases, laid out on a 2-D "map of cases".
+4. cuts sighting pages into accounts (paragraphs), tags each with what was
+   observed (shape, light, sound, movement, effects...), groups accounts into
+   recurring sighting types, and links records whose accounts describe the
+   same kind of event (see ``events`` and ``signatures``). Wording and
+   archive metadata are not used for this.
 
 Everything is recomputed from the database, so it stays in step with new data.
 """
 from __future__ import annotations
 
 import logging
-import re
 import statistics
 from collections import Counter, defaultdict
 from datetime import date
 
-import numpy as np
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from ..db import AnalysisResult, Document, Mention, Observation, Tag, session_scope, utcnow
+from ..db import Account, AnalysisResult, Document, Mention, Observation, session_scope, utcnow
 from .extract import extract_all
 from .features import BY_KEY, GROUPS, OBSERVABLES
-from .links import DocFeatures, cluster, describe_cluster, layout, series_key, shared_details, similarity_matrix
+from .links import series_key
 from .places import STATES, place_label
 
 log = logging.getLogger(__name__)
 
-CLUSTER_THRESHOLD = 0.34  # min average similarity inside a cluster
-LINK_THRESHOLD = 0.36  # min similarity for a "discovered link" between collections
-ANALYSIS_VERSION = 2  # bump when stored results change shape; triggers a rebuild on startup
+MAP_MAX = 3000  # accounts drawn on the map of sighting accounts
+ANALYSIS_VERSION = 3  # bump when stored results change shape; triggers a rebuild on startup
 MIN_PAIR_COUNT = 4  # co-occurrence pairs seen fewer times are noise
-
-
-_SENT = re.compile(r"(?<=[.!?])\s+")
-
-
-def _norm_sentence(s: str) -> str:
-    return re.sub(r"[\d,]+", "#", s.lower()).strip()
-
-
-def boilerplate_sentences(texts, min_docs: int = 5) -> set[str]:
-    """Sentences (numbers normalised) repeated across many publisher descriptions:
-    templates like "... submitted a report ... from an infrared sensor aboard a
-    U.S. military platform"."""
-    c: Counter = Counter()
-    for t in texts:
-        c.update({_norm_sentence(s) for s in _SENT.split(t) if len(s) > 30})
-    return {s for s, n in c.items() if n >= min_docs}
-
-
-def strip_boilerplate(text: str, boiler: set[str]) -> str:
-    return " ".join(s for s in _SENT.split(text) if _norm_sentence(s) not in boiler)
 
 
 def run_analysis() -> dict:
@@ -98,9 +77,6 @@ def compute(db: Session) -> dict:
     dates = db.execute(select(Mention.document_id, Mention.page_no, Mention.value, Mention.precision)
                        .where(Mention.kind == "date")).all()
     places = db.execute(select(Mention.document_id, Mention.page_no, Mention.value).where(Mention.kind == "place")).all()
-    tags: dict[int, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
-    for doc_id, facet, value in db.execute(select(Tag.document_id, Tag.facet, Tag.value)):
-        tags[doc_id][facet].add(value)
 
     # a "unit" is one sighting page (or a record's description, page 0)
     unit_features: dict[tuple[int, int], set[str]] = defaultdict(set)
@@ -132,10 +108,7 @@ def compute(db: Session) -> dict:
         "timeline": timeline(docs, unit_months, unit_years, unit_features, unit_places),
         "places": place_summary(unit_places, unit_year),
     }
-    results.update(connections(docs, tags, obs, unit_year))
-    from .matching import link_previews
-
-    link_previews(db, results["links"], boilerplate_sentences(d.description or "" for d in docs.values()))
+    results.update(connections(db, docs, unit_year))
     results["version"] = ANALYSIS_VERSION
     results["overview"] = {
         "sighting_units": len(all_units),
@@ -145,6 +118,7 @@ def compute(db: Session) -> dict:
         "waves": len(results["timeline"]["waves"]),
         "clusters": len(results["clusters"]),
         "links": len(results["links"]),
+        "accounts": results["accounts"],
     }
     return results
 
@@ -325,108 +299,97 @@ def place_summary(unit_places, unit_year) -> dict:
     }
 
 
-def connections(docs, tags, obs, unit_year) -> dict:
-    ids = sorted(docs)
-    if not ids:
-        return {"clusters": [], "map": [], "links": [], "similar": {}}
-    doc_obs: dict[int, set[str]] = defaultdict(set)
-    for doc_id, _, feature, _ in obs:
-        doc_obs[doc_id].add(feature)
-    desc_counts = Counter(docs[i].description for i in ids if docs[i].description)
-    shared = {d for d, c in desc_counts.items() if c >= 4}
-    boiler = boilerplate_sentences(docs[i].description or "" for i in ids)
-    feats: list[DocFeatures] = []
-    for i in ids:
-        d = docs[i]
-        t = {facet: set(v) for facet, v in tags.get(i, {}).items() if facet not in ("agency", "assessment")}
-        t["observable"] = doc_obs.get(i, set())
-        desc = strip_boilerplate(d.description or "", boiler) if d.description not in shared else ""
-        summary = d.summary if d.summary and d.summary != (d.description or "")[: len(d.summary)] else ""
-        text = " ".join(x for x in (desc, summary) if x)
-        feats.append(DocFeatures(
-            id=i, record_id=d.record_id, title=d.title, text=text, tags=t,
-            series=series_key(d.record_id, d.description, shared),
-            related=set(d.related_ids or []), year=d.incident_year,
-        ))
-    sim = similarity_matrix(feats)
-    labels = cluster(sim, CLUSTER_THRESHOLD)
-    pos = layout(sim)
+def connections(db: Session, docs, unit_year) -> dict:
+    """Sighting types, the map of accounts, similar records and cross-links,
+    all from the event tags of sighting accounts (see ``signatures``)."""
+    from .events import dim_of
+    from .signatures import (LINK_MIN_DETAILS, LINK_SCORE, SIGNATURE_DIMS, Acc, layout, pair_detail,
+                             record_similarity, same_report, sighting_types, tag_weights, type_of_account)
 
-    groups: dict[int, list[int]] = defaultdict(list)
-    for idx, lab in enumerate(labels):
-        groups[int(lab)].append(idx)
-    clusters = []
-    for lab, members in groups.items():
-        if len(members) < 3:
-            continue
-        # a cluster that is just one published series is not a discovery
-        series = {feats[m].series for m in members}
-        sub = sim[np.ix_(members, members)]
-        cohesion = float((sub.sum() - len(members)) / max(1, len(members) * (len(members) - 1)))
-        info = describe_cluster([feats[m] for m in members])
-        agencies = Counter(docs[feats[m].id].agency for m in members if docs[feats[m].id].agency)
-        decades = {feats[m].year // 10 for m in members if feats[m].year}
-        yrs = [feats[m].year for m in members if feats[m].year]
-        releases = {docs[feats[m].id].release_id for m in members}
-        clusters.append({
-            "members": [feats[m].id for m in members],
-            "size": len(members), "series": len(series), "cohesion": round(cohesion, 3),
-            "agency_count": len(agencies), "decade_count": len(decades), "release_count": len(releases),
-            "span_years": (max(yrs) - min(yrs)) if yrs else 0,
-            "centroid": [round(float(pos[members, 0].mean()), 4), round(float(pos[members, 1].mean()), 4)],
-            "agencies": [a for a, _ in agencies.most_common(3)],
-            **info,
+    empty = {"clusters": [], "map": [], "links": [], "similar": {}, "tag_weights": {}, "accounts": 0}
+    rows = db.execute(select(Account.id, Account.document_id, Account.page_no, Account.tags)
+                      .where(Account.document_id.in_(list(docs)) if docs else Account.id < 0)
+                      .order_by(Account.id)).all()
+    accs = [Acc(r.id, r.document_id, r.page_no, list(r.tags or []), unit_year((r.document_id, r.page_no)))
+            for r in rows]
+    if len(accs) < 2:
+        return {**empty, "accounts": len(accs)}
+    by_id = {a.id: a for a in accs}
+    w = tag_weights(accs)
+    desc_counts = Counter(docs[i].description for i in docs if docs[i].description)
+    shared_desc = {d for d, c in desc_counts.items() if c >= 4}
+    series = {i: series_key(d.record_id, d.description, shared_desc) for i, d in docs.items()}
+
+    # sighting types, and where each account sits on the map
+    types = sighting_types(accs, w)
+    account_type = type_of_account(types)
+    mapped = accs
+    if len(accs) > MAP_MAX:  # keep every typed account, sample the rest
+        import random
+
+        rest = [a for a in accs if a.id not in account_type]
+        random.Random(5).shuffle(rest)
+        typed = [a for a in accs if a.id in account_type]
+        mapped = typed + rest[: max(0, MAP_MAX - len(typed))]
+    pos = layout(mapped, w)
+    points = [{"id": a.id, "doc": a.doc, "page": a.page, "x": round(float(pos[i, 0]), 4),
+               "y": round(float(pos[i, 1]), 4), "cluster": account_type.get(a.id), "tags": a.tags[:6]}
+              for i, a in enumerate(mapped)]
+    where = {p["id"]: (p["x"], p["y"]) for p in points}
+    for t in types:
+        members = [by_id[a] for a in t["accounts"]]
+        agencies = Counter(docs[a.doc].agency for a in members if docs[a.doc].agency)
+        years = [a.year for a in members if a.year]
+        xy = [where[a.id] for a in members if a.id in where]
+        t.update({
+            "size": len(members), "record_count": len(t["records"]),
+            "agencies": [a for a, _ in agencies.most_common(4)], "agency_count": len(agencies),
+            "span_years": (max(years) - min(years)) if years else 0,
+            "centroid": [round(sum(x for x, _ in xy) / len(xy), 4), round(sum(y for _, y in xy) / len(xy), 4)] if xy else [0.5, 0.5],
         })
-    # clusters that bridge agencies or decades first: those are the connections
-    clusters.sort(key=lambda c: (-(c["agency_count"] > 1 or c["span_years"] >= 15), -c["size"]))
-    for n, c in enumerate(clusters, start=1):
-        c["id"] = n
-    member_cluster = {m: c["id"] for c in clusters for m in c["members"]}
 
-    # discovered links: strong similarity between records of different series
-    # that the publisher did not already pair
+    # records linked through their best-matching accounts
+    best = record_similarity(accs, w, series)
+    similar: dict[str, list] = defaultdict(list)
+    for (da, dbb), v in best.items():
+        shared = pair_detail(by_id[v["acc_a"]].tags, by_id[v["acc_b"]].tags, w)["shared"]
+        if sum(1 for t in shared if dim_of(t) in SIGNATURE_DIMS) < LINK_MIN_DETAILS:
+            continue
+        similar[str(da)].append([dbb, v["score"], shared[:6], v["acc_a"], v["acc_b"]])
+        similar[str(dbb)].append([da, v["score"], shared[:6], v["acc_b"], v["acc_a"]])
+    similar = {k: sorted(v, key=lambda s: -s[1])[:6] for k, v in similar.items()}
+
     links = []
-    n = len(feats)
-    for a in range(n):
-        for b in range(a + 1, n):
-            s = float(sim[a, b])
-            if s < LINK_THRESHOLD:
-                continue
-            fa, fb = feats[a], feats[b]
-            if fa.series == fb.series or fa.record_id in fb.related or fb.record_id in fa.related:
-                continue
-            da, db_ = docs[fa.id], docs[fb.id]
-            cross_agency = bool(da.agency and db_.agency and da.agency != db_.agency)
-            gap = abs(fa.year - fb.year) if fa.year and fb.year else 0
-            # the interesting links connect different agencies or distant years
-            if not cross_agency and gap < 15:
-                continue
-            links.append({"a": fa.id, "b": fb.id, "score": round(s, 3), "shared": shared_details(fa, fb),
-                          "cross_agency": cross_agency, "years_apart": gap})
-    links.sort(key=lambda l: (-l["cross_agency"], -l["score"]))
+    for (da, dbb), v in sorted(best.items(), key=lambda kv: -kv[1]["score"]):
+        if v["score"] < LINK_SCORE:
+            break
+        a, b = docs[da], docs[dbb]
+        if a.record_id in (b.related_ids or []) or b.record_id in (a.related_ids or []):
+            continue
+        ya, yb = by_id[v["acc_a"]].year or a.incident_year, by_id[v["acc_b"]].year or b.incident_year
+        gap = abs(ya - yb) if ya and yb else 0
+        cross_agency = bool(a.agency and b.agency and a.agency != b.agency)
+        if not cross_agency and gap < 15:
+            continue  # the interesting links connect different agencies or distant years
+        detail = pair_detail(by_id[v["acc_a"]].tags, by_id[v["acc_b"]].tags, w)
+        links.append({"a": da, "b": dbb, "score": v["score"], "pairs": v["pairs"], "acc_a": v["acc_a"],
+                      "acc_b": v["acc_b"], "shared": detail["shared"], "cross_agency": cross_agency,
+                      "years_apart": gap,
+                      "details": sum(1 for t in detail["shared"] if dim_of(t) in SIGNATURE_DIMS)})
+    texts = dict(db.execute(select(Account.id, Account.text).where(
+        Account.id.in_([x for link in links for x in (link["acc_a"], link["acc_b"])]))).all()) if links else {}
     per_record: Counter = Counter()
     kept = []
-    for l in links:  # keep the list varied: at most 3 links per record
-        if per_record[l["a"]] >= 3 or per_record[l["b"]] >= 3:
+    for link in links:
+        link["same_report"] = same_report(texts.get(link["acc_a"], ""), texts.get(link["acc_b"], ""))
+        # two shared details can be chance; three, or a copy of the same report, is a lead
+        if not link["same_report"] and link["details"] < LINK_MIN_DETAILS:
             continue
-        per_record[l["a"]] += 1
-        per_record[l["b"]] += 1
-        kept.append(l)
+        if per_record[link["a"]] >= 3 or per_record[link["b"]] >= 3:
+            continue  # keep the list varied: at most 3 links per record
+        per_record[link["a"]] += 1
+        per_record[link["b"]] += 1
+        kept.append(link)
     links = kept[:60]
-
-    similar = {}
-    for a in range(n):
-        order = np.argsort(-sim[a])
-        top = []
-        for b in order[1:]:
-            if len(top) >= 6 or sim[a, b] < 0.25:
-                break
-            if feats[b].series == feats[a].series:
-                continue
-            top.append([feats[b].id, round(float(sim[a, b]), 3), shared_details(feats[a], feats[b])[:6]])
-        similar[str(feats[a].id)] = top
-
-    points = [{"id": f.id, "x": round(float(pos[i, 0]), 4), "y": round(float(pos[i, 1]), 4),
-               "cluster": member_cluster.get(f.id), "media": docs[f.id].media_type, "year": f.year}
-              for i, f in enumerate(feats)]
-    return {"clusters": clusters, "map": points, "links": links, "similar": similar}
+    return {"clusters": types, "map": points, "links": links, "similar": similar, "tag_weights": w,
+            "accounts": len(accs)}

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import re
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -191,21 +190,6 @@ def _highlight(text: str, q: str | None, width: int = 220) -> Markup:
     return Markup(out + ("…" if start + width < len(text) else ""))
 
 
-_WORD = re.compile(r"[A-Za-z][A-Za-z-]{2,}")
-
-
-def _mark_terms(text: str, terms) -> Markup:
-    """Escape ``text`` and mark the words listed in ``terms``."""
-    words = {t.lower() for t in terms or ()}
-    out, last = [], 0
-    for m in _WORD.finditer(text or ""):
-        if m.group(0).lower() in words:
-            out += [str(escape(text[last:m.start()])), "<mark>", str(escape(m.group(0))), "</mark>"]
-            last = m.end()
-    out.append(str(escape((text or "")[last:])))
-    return Markup("".join(out))
-
-
 def _url(path: str, **params) -> str:
     clean = {k: v for k, v in params.items() if v not in (None, "", [])}
     return path + ("?" + urlencode(clean, doseq=True) if clean else "")
@@ -214,7 +198,6 @@ def _url(path: str, **params) -> str:
 templates.env.filters["n"] = _fmt_int
 templates.env.filters["ago"] = _ago
 templates.env.filters["d"] = _date
-templates.env.filters["mark_terms"] = _mark_terms
 templates.env.globals.update(
     label=label, FACET_LABELS=FACET_LABELS, FACETS=FACETS, MEDIA_LABELS=Q.MEDIA_LABELS,
     MEDIA_ORDER=Q.MEDIA_ORDER, highlight=_highlight, url=_url, version=__version__, asset_version=ASSET_VERSION,
@@ -344,6 +327,15 @@ def patterns_links(request: Request):
         return render(request, "links.html", lp=P.links_page(db))
 
 
+@app.get("/patterns/types/{type_id}", response_class=HTMLResponse)
+def patterns_type(request: Request, type_id: int):
+    with session_scope() as db:
+        t = P.sighting_type(db, type_id)
+        if not t:
+            raise HTTPException(404, "sighting type not found")
+        return render(request, "type.html", t=t)
+
+
 @app.get("/patterns/compare", response_class=HTMLResponse)
 def patterns_compare(request: Request, a: int, b: int):
     with session_scope() as db:
@@ -360,6 +352,7 @@ def api_patterns():
     with session_scope() as db:
         r = load_results(db)
         r.pop("similar", None)
+        r.pop("tag_weights", None)
         if "computed_at" in r:
             r["computed_at"] = r["computed_at"].isoformat()
         return r

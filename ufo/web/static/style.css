@@ -462,3 +462,17 @@ blockquote { margin: 0 0 4px; padding: 6px 10px; border-left: 3px solid var(--se
   .sbs-k { grid-column: 1 / -1; font-weight: 500; }
   .sbs-head .sbs-k, .sbs-head > div:first-child { display: none; }
 }
+
+/* sighting accounts and their tagged details */
+.ev-quote { font-family: var(--sans); font-size: .86rem; line-height: 1.55; color: var(--text-primary); max-height: 22em; overflow: auto; }
+.match .ev-quote, .page-text .ev-quote { white-space: pre-line; }
+blockquote.ev-quote.pad { margin: 0 14px 14px; }
+mark.ev { background: none; color: inherit; padding: 0; border-bottom: 1.5px dotted var(--text-muted); border-radius: 0; }
+mark.ev.hit { background: var(--mark); border-bottom: 2px solid var(--hot); padding: 0 1px; }
+.ev-chip { color: var(--text-primary); }
+.chips.only { margin-top: 6px; }
+.chips.only .chip { font-size: .7rem; }
+.record-details > summary { cursor: pointer; }
+.cluster h3 a { color: var(--text-primary); }
+.cluster .quotes { margin-top: 10px; }
+.cluster .ev-quote { max-height: 9em; }

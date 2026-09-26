@@ -5,7 +5,7 @@
   <div>
     <div class="eyebrow">Connections across the files</div>
     <h1>Patterns in the UFO files</h1>
-    <p>Every page that reads like a sighting report is scanned for concrete, recurring details: glows and halos, humming or total silence, smells, hovering, right-angle turns, engines stalling, marks left on the ground. Dates and places on those pages show when reports bunched into waves. Records that describe similar things are linked across agencies and decades. Everything below updates when new files are released.</p>
+    <p>Every page that reads like a sighting report is scanned for concrete, recurring details: glows and halos, humming or total silence, smells, hovering, right-angle turns, engines stalling, marks left on the ground. Dates and places on those pages show when reports bunched into waves. Sighting accounts are tagged with what was observed and grouped into recurring sighting types; records whose accounts describe the same kind of event are linked across agencies and decades. Everything below updates when new files are released.</p>
   </div>
   <div class="status-line">
     {% if p.ready %}<span>Computed {{ p.computed_at | ago }} from the extracted text. Patterns are found automatically: open the evidence before drawing conclusions.</span>{% endif %}
@@ -19,12 +19,12 @@
   <div class="tile"><div class="v">{{ p.overview.sighting_units | n }}</div><div class="k">Sighting pages analysed</div><div class="s">pages that read like reports</div></div>
   <div class="tile"><div class="v">{{ p.overview.observations | n }}</div><div class="k">Details found</div><div class="s">in {{ p.overview.records_with_observations }} records, each with its quote</div></div>
   <div class="tile"><div class="v">{{ p.overview.waves }}</div><div class="k">Waves</div><div class="s">periods with unusually many reports</div></div>
-  <div class="tile"><div class="v">{{ p.overview.clusters }}</div><div class="k">Clusters</div><div class="s">groups of similar cases</div></div>
-  <div class="tile"><div class="v">{{ p.links | length }}</div><div class="k">Cross-links</div><div class="s">similar cases across agencies or decades</div></div>
+  <div class="tile"><div class="v">{{ p.overview.clusters }}</div><div class="k">Sighting types</div><div class="s">recurring combinations of details</div></div>
+  <div class="tile"><div class="v">{{ p.links | length }}</div><div class="k">Connections</div><div class="s">same kind of event across agencies or decades</div></div>
 </section>
 
 <nav class="toc small" aria-label="On this page">
-  <a href="#waves">Waves</a><a href="#details">Recurring details</a><a href="#decades">By decade</a><a href="#together">Reported together</a><a href="#rare">Rare details</a><a href="#where">Where</a><a href="#clusters">Clusters</a><a href="#links">Cross-links</a>
+  <a href="#waves">Waves</a><a href="#details">Recurring details</a><a href="#decades">By decade</a><a href="#together">Reported together</a><a href="#rare">Rare details</a><a href="#where">Where</a><a href="#clusters">Sighting types</a><a href="#links">Connections</a>
 </nav>
 
 <section class="section card" id="waves">
@@ -136,23 +136,24 @@
 </section>
 
 <section class="section card" id="clusters">
-  <h2>Clusters of similar cases <small>map of all {{ p.clusters | map(attribute='size') | sum }} clustered records</small></h2>
-  <p class="secondary small">Every record is a dot, placed so that records describing similar things sit close together: similar wording plus shared shapes, details, sensors, witnesses, places and decades. Numbered circles mark clusters. Hover or tap a cluster card to highlight its records, or click a dot to open it.</p>
+  <h2>Sighting types <small>map of {{ p.accounts | n }} sighting accounts</small></h2>
+  <p class="secondary small">Each sighting page is cut into accounts (paragraphs, or one report form), and each account is tagged with what was observed: shape, colour, light, sound, movement, visible structure, effects on people, machines or the ground. A sighting type is a combination of details that recurs across records far more often than chance would give. Agency, archive series, place, decade and wording play no part. Every dot is one account, placed near accounts that describe similar events. Numbered circles mark types. Hover or tap a card to highlight its accounts, or click a dot to read it.</p>
   <div class="scroll-x">{{ p.case_map }}</div>
 </section>
 <div class="cluster-grid">
-  {% for c in p.clusters[:14] %}
+  {% for c in p.clusters[:16] %}
   <article class="card cluster" data-c="{{ c.id }}" tabindex="0">
     <div class="cluster-head"><span class="cluster-no">{{ c.id }}</span>
-      <div><h3>{{ c.name }}</h3>
-        <div class="muted small">{{ c.size }} records{% if c.years %} · {{ c.years[0] }}{% if c.years[1] != c.years[0] %}–{{ c.years[1] }}{% endif %}{% endif %}
+      <div><h3><a href="/patterns/types/{{ c.id }}">{{ c.name }}</a></h3>
+        <div class="muted small">{{ c.size }} accounts in {{ c.record_count }} records{% if c.years %} · {{ c.years[0] }}{% if c.years[1] != c.years[0] %}–{{ c.years[1] }}{% endif %}{% endif %}
+          · {{ c.lift }}× more often than chance
           {% if c.agency_count > 1 %} · <strong class="bridge">{{ c.agency_count }} agencies</strong>{% endif %}
           {% if c.span_years >= 15 %} · <strong class="bridge">spans {{ c.span_years }} years</strong>{% endif %}</div></div></div>
-    <div class="chips">{% for cm in c.common[:6] %}<span class="chip" title="{{ (cm.share * 100) | round | int }}% of the cluster">{{ cm.label }} <span class="muted">{{ (cm.share * 100) | round | int }}%</span></span>{% endfor %}</div>
-    <ul class="member-list small">
-      {% for d in c.docs[:5] %}<li><a href="/documents/{{ d.id }}">{{ d.title | truncate(70) }}</a></li>{% endfor %}
-      {% if c.docs | length > 5 %}<li class="muted">and {{ c.docs | length - 5 }} more</li>{% endif %}
+    {% if c.also_labels %}<div class="chips"><span class="muted small">often also:</span>{% for l, share in c.also_labels %}<span class="chip" title="{{ (share * 100) | round | int }}% of these accounts">{{ l }} <span class="muted">{{ (share * 100) | round | int }}%</span></span>{% endfor %}</div>{% endif %}
+    <ul class="quotes">
+      {% for e in c.examples %}<li><blockquote class="ev-quote">{{ e.excerpt }}</blockquote><a class="small" href="/documents/{{ e.doc.id }}{% if e.page %}#p{{ e.page }}{% endif %}">{{ e.doc.title | truncate(60) }}{% if e.page %}, page {{ e.page }}{% endif %}</a>{% if e.doc.agency %} <span class="muted small">· {{ e.doc.agency }}</span>{% endif %}</li>{% endfor %}
     </ul>
+    <a class="more" href="/patterns/types/{{ c.id }}">All {{ c.size }} accounts →</a>
   </article>
   {% endfor %}
 </div>
@@ -160,26 +161,11 @@
 {% if p.links %}
 <section class="section" id="links">
   <h2>Connections across agencies and decades</h2>
-  <p class="secondary small">Pairs of records from different agencies, or at least 15 years apart, that describe strikingly similar things. Records the publisher already paired, or files from the same series, are left out. Open a pair to see the exact passages that match.</p>
+  <p class="secondary small">Records from different agencies, or at least 15 years apart, that each contain an account describing the same kind of event: at least three shared details of the phenomenon, weighted by how rare each detail is. Records from the same published series are left out.</p>
   <div class="link-list">
-    {% for l in p.links[:24] %}
-    <article class="card linkcard">
-      <div class="link-pair">
-        <a href="/documents/{{ l.da.id }}"><span class="rid">{{ l.da.record_id | truncate(28) }}</span><span class="link-title">{{ l.da.title | truncate(80) }}</span><span class="muted small">{{ l.da.agency or '' }}{% if l.da.year %} · {{ l.da.year }}{% endif %}</span></a>
-        <span class="link-mid" aria-hidden="true">⟷</span>
-        <a href="/documents/{{ l.db.id }}"><span class="rid">{{ l.db.record_id | truncate(28) }}</span><span class="link-title">{{ l.db.title | truncate(80) }}</span><span class="muted small">{{ l.db.agency or '' }}{% if l.db.year %} · {{ l.db.year }}{% endif %}</span></a>
-      </div>
-      <div class="chips">
-        {% if l.cross_agency %}<span class="chip strong">different agencies</span>{% endif %}
-        {% if l.years_apart >= 15 %}<span class="chip strong">{{ l.years_apart }} years apart</span>{% endif %}
-        {% for s in l.shared_labels[:6] %}<span class="chip">{{ s }}</span>{% endfor %}
-        <span class="muted small">similarity {{ (l.score * 100) | round | int }}%</span>
-      </div>
-      <a class="more" href="{{ url('/patterns/compare', a=l.a, b=l.b) }}">{% if l.matches %}{{ l.matches }}{{ '+' if l.matches >= 12 }} matching passage{{ 's' if l.matches != 1 }}, side by side{% else %}Compare side by side{% endif %} →</a>
-    </article>
-    {% endfor %}
+    {% for l in p.links[:12] %}{% include "_linkcard.html" %}{% endfor %}
   </div>
-  <p class="links-more"><a class="more" href="/patterns/links">All {{ p.links | length }} connections with their matching passages →</a></p>
+  <p class="links-more"><a class="more" href="/patterns/links">All {{ p.links | length }} connections →</a></p>
 </section>
 {% endif %}
 

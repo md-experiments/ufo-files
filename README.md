@@ -104,14 +104,33 @@ seconds for the current ~450 records and 10,000 pages):
   humming stand out), 2019–23, and 2025.
 * **Reported together.** Pairs of details that appear on the same page more
   often than chance ("lift"), e.g. *no wings + silent*.
-* **Similar cases** (`links.py`). Records are compared on their wording (after
-  removing template sentences the publisher repeats in many descriptions) and
-  on shared structured details. The analysis then builds three things:
-  clusters (average-linkage agglomerative clustering), a 2-D "map of cases"
-  (t-SNE), a per-record "similar records" list, and cross-links between
-  records from different agencies or at least 15 years apart. Links the
-  publisher already made, and files from the same series, don't count as
-  discoveries.
+* **Sighting accounts** (`events.py`). Each sighting page is cut into
+  accounts: paragraphs, or one report form. Each account is tagged with what
+  was observed, in eleven dimensions: shape, colour, light (glow, halo,
+  flashing, beams), sound (silent, hum, whoosh, roar, whistle, bang), movement
+  (hovering, sudden acceleration, abrupt turns, wobbling, spinning, vertical
+  climb, landing, pacing a vehicle, vanishing), structure (no wings, trail,
+  dome, windows, rim), effects (engine failure, instruments, witnesses,
+  ground traces, odour, heat, animals), number of objects, duration, time of
+  day, and how it was observed. The tagger skips negations ("no sound"),
+  printed form labels and questions ("b. Roar, whistle, whoosh.", "Did the
+  object hover?"), option lists ending in "etc.", blank questionnaires, and
+  shapes named only in an explanation ("probably a meteor"). An account needs
+  at least two details of the phenomenon to be kept.
+* **Sighting types, matches and links** (`signatures.py`). This step uses
+  only the event tags. Agency, archive series, place, decade and wording play
+  no part. Each tag is weighted by its rarity and its dimension (movement,
+  sound and effects count most; time of day and duration least).
+  * Two accounts match when they share at least two details of the phenomenon
+    itself, one of them about its light, sound, movement, structure or effects.
+  * A *sighting type* is a combination of two or three details that recurs in
+    at least three records far more often than chance ("Flashing · Hovering ·
+    Red/orange"). Every account of a type has all of its details.
+  * The map places every account by tag similarity (t-SNE).
+  * A record's similar records, and the cross-links between records from
+    different agencies or at least 15 years apart, come from their
+    best-matching accounts. They need at least three shared details, or a copy
+    of the same report. Files from the same published series don't count.
 
 Run it by hand with `python -m ufo analyze`.
 
@@ -133,22 +152,28 @@ Run it by hand with `python -m ufo analyze`.
   * a decade × detail heatmap and the pairs of details reported together;
   * rare details with their quotes;
   * a U.S. tile map and a world breakdown;
-  * the map of cases, with clusters highlighted on hover;
-  * cross-agency and cross-decade links.
+  * sighting types on a map of sighting accounts, highlighted on hover, each
+    with its own page listing every account (`/patterns/types/{id}`);
+  * connections across agencies and decades.
 
   Every mark links to `/patterns/evidence?feature=&year=&place=`, which lists
   the matching sighting pages with quotes.
-* **Connections** (`/patterns/links`): every cross-link with its strongest
-  matching passage. `/patterns/compare?a=&b=` compares any two records: the
-  sentences that match (shared words highlighted, with page links), the
-  details both report with their quotes, places and dates written in both,
-  and the metadata and labels side by side. Passage matching runs with the
-  analysis step, so it updates with new releases.
+* **Connections** (`/patterns/links`): every cross-link, with its
+  best-matching pair of accounts. `/patterns/compare?a=&b=` compares any two
+  records account by account. Each matching pair shows:
+  * the details both describe, highlighted in the text;
+  * the details only one of them mentions;
+  * whether the two are copies of the same report;
+  * dates and places both pages mention.
+
+  Archive metadata is kept in a separate, collapsed section and is not used
+  for matching.
 * **Browse** (`/documents`): full-text search across titles, summaries and
   OCR'd text, with filters by release, agency, media type and any label.
 * **Document** (`/documents/{id}`): metadata, summary, labels, related records,
-  the details found in the record (with quotes), similar records elsewhere and
-  the record's cluster, a link to the original, and the extracted text page by
+  the details found in the record (with quotes), its tagged sighting accounts,
+  similar records elsewhere and
+  the sighting types it contains, a link to the original, and the extracted text page by
   page, with OCR pages and their confidence marked.
 * **Pipeline** (`/pipeline`): processing status and recent runs with logs.
 * **JSON API**: `/api/stats`, `/api/patterns`, `/api/documents?q=&release=&agency=&media=&tag=facet:value`,

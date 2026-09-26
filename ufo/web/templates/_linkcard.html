@@ -1,0 +1,19 @@
+{# one connection: two records, their best-matching accounts and the details they share #}
+<article class="card linkcard">
+  {% with da=l.da, db=l.db %}{% include "_pairhead.html" %}{% endwith %}
+  <div class="chips">
+    {% if l.same_report %}<span class="chip strong shared">same report in both files</span>{% endif %}
+    {% if l.cross_agency %}<span class="chip strong">different agencies</span>{% endif %}
+    {% if l.years_apart >= 15 %}<span class="chip strong">{{ l.years_apart }} years apart</span>{% endif %}
+  </div>
+  <div class="chips"><span class="muted small">both describe:</span>{% for c in l.chips %}<span class="chip ev-chip dim-{{ c.dim }}" title="{{ c.dim_label }}">{{ c.label }}</span>{% endfor %}</div>
+  {% if l.ea and l.eb %}
+  <div class="cmp-grid">
+    {% for side, doc, x in (('A', l.da, l.ea), ('B', l.db, l.eb)) %}
+    <div class="side-{{ side | lower }}"><blockquote class="ev-quote">{{ x.excerpt }}</blockquote>
+      <a class="small" href="/documents/{{ doc.id }}{% if x.page %}#p{{ x.page }}{% endif %}"><span class="side-tag sm tag-{{ side | lower }}">{{ side }}</span> {{ 'Page ' ~ x.page if x.page else "Publisher's description" }}</a></div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <a class="more" href="{{ url('/patterns/compare', a=l.a, b=l.b) }}">{% if l.pairs > 1 %}{{ l.pairs }} matching account pairs{% else %}Compare the accounts{% endif %} →</a>
+</article>

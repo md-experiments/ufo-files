@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}{{ t.name }} · UFO Files{% endblock %}
+{% block content %}
+<p class="small"><a href="/patterns#clusters">← Sighting types</a></p>
+<div class="eyebrow">Sighting type {{ t.type.id }}</div>
+<h1>{{ t.name }}</h1>
+<p class="secondary">{{ t.type.size }} accounts in {{ t.type.record_count }} records{% if t.type.years %}, {{ t.type.years[0] }}{% if t.type.years[1] != t.type.years[0] %}–{{ t.type.years[1] }}{% endif %}{% endif %}{% if t.type.agencies %}, from {{ t.type.agencies | join(', ') }}{% endif %}. Every account below reports all of: {% for c in t.signature %}<strong>{{ c.label | lower }}</strong>{{ ', ' if not loop.last }}{% endfor %}. That combination turns up {{ t.type.lift }}× more often than if these details were reported independently.</p>
+{% if t.also %}<div class="chips"><span class="muted small">often also:</span>{% for l, share in t.also %}<span class="chip">{{ l }} <span class="muted">{{ (share * 100) | round | int }}%</span></span>{% endfor %}</div>{% endif %}
+
+{% for rec in t.records %}
+<article class="card evidence-record">
+  <h3><a href="/documents/{{ rec.doc.id }}">{{ rec.doc.title }}</a></h3>
+  <div class="muted small">{{ rec.doc.record_id }}{% if rec.doc.agency %} · {{ rec.doc.agency }}{% endif %}{% if rec.doc.year %} · incident {{ rec.doc.year }}{% endif %} · {{ rec.accounts | length }} account{{ 's' if rec.accounts | length != 1 }}</div>
+  <ul class="quotes">
+    {% for a in rec.accounts[:6] %}
+    <li><blockquote class="ev-quote">{{ a.excerpt }}</blockquote>
+      <div class="chips"><a class="small" href="/documents/{{ rec.doc.id }}{% if a.page %}#p{{ a.page }}{% endif %}">{{ 'Page ' ~ a.page if a.page else "Publisher's description" }}</a>
+      {% for c in a.chips %}<span class="chip">{{ c.label }}</span>{% endfor %}</div></li>
+    {% endfor %}
+    {% if rec.accounts | length > 6 %}<li class="muted small">and {{ rec.accounts | length - 6 }} more in this record</li>{% endif %}
+  </ul>
+</article>
+{% endfor %}
+{% endblock %}
