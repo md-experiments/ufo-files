@@ -443,7 +443,7 @@ def pipeline_page(request: Request):
         computed = db.get(AnalysisResult, "overview")
         return render(
             request, "pipeline.html", runs=Q.runs(db), statuses=Q.status_counts(db), stats=Q.overview(db),
-            problems=Q.problem_records(db), sqlite=s.database_url.startswith("sqlite"),
+            problems=Q.problem_records(db),
             settings=s, admin_enabled=bool(s.admin_token),
             analysis_at=computed.computed_at if computed else None,
             classifier=(f'{ {"anthropic": "Claude", "openai": "OpenAI"}[s.llm_provider] } ({s.llm_model})'

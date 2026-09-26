@@ -85,7 +85,6 @@ setTimeout(function () { if (!document.activeElement || document.activeElement.i
   </table>
   </div>
   {% else %}<p class="muted">No runs yet.</p>{% endif %}
-  {% if sqlite %}<p class="muted small" style="margin-top:10px">Run history lives in the SQLite database in <code>DATA_DIR</code>. On Railway, mount a volume at <code>/data</code> (or use Postgres) so it survives redeploys.</p>{% endif %}
 </section>
 
 {% if problems %}
