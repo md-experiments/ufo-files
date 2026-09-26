@@ -460,16 +460,89 @@ def _queue_llm_classification(rlog: RunLog) -> None:
 
 def run_analysis_step(rlog: RunLog) -> None:
     """Look for connections across all records (waves, recurring details,
-    clusters of similar cases). Failures here never fail the run."""
+    sighting types, links). Failures here never fail the run."""
     from .analyze import run_analysis
 
     try:
-        s = run_analysis()
-        rlog("analysis: %d sighting pages, %d observations, %d waves, %d clusters, %d cross-links",
+        s = run_analysis(progress=rlog)
+        rlog("analysis: %d sighting pages, %d observations, %d waves, %d sighting types, %d connections",
              s["sighting_units"], s["observations"], s["waves"], s["clusters"], s["links"])
     except Exception as exc:
         log.exception("analysis failed")
         rlog("analysis failed: %s", exc)
+
+
+def _begin_run(trigger: str) -> int | None:
+    """Record a new run, unless one is alive. A run whose heartbeat stopped
+    (e.g. killed by a redeploy) is closed as interrupted."""
+    with session_scope() as db:
+        running = db.scalar(
+            select(PipelineRun).where(PipelineRun.status == "running").order_by(PipelineRun.started_at.desc())
+        )
+        if running and utcnow() - (running.heartbeat_at or running.started_at) < STALE_RUN:
+            log.info("run %d still in progress; skipping", running.id)
+            return None
+        if running:
+            running.status, running.finished_at = "error", utcnow()
+            running.log = (running.log or "") + "\ninterrupted (no heartbeat; the service restarted)"
+        run = PipelineRun(trigger=trigger)
+        db.add(run)
+        db.flush()
+        return run.id
+
+
+def _start_heartbeat(run_id: int, rlog: RunLog) -> threading.Event:
+    done = threading.Event()
+
+    def beat() -> None:
+        while not done.wait(HEARTBEAT_SECONDS):
+            try:
+                with session_scope() as db:
+                    run = db.get(PipelineRun, run_id)
+                    run.heartbeat_at = utcnow()
+                    run.log = rlog.text()
+            except Exception:  # pragma: no cover - best effort
+                log.exception("heartbeat failed")
+
+    threading.Thread(target=beat, name="pipeline-heartbeat", daemon=True).start()
+    return done
+
+
+def close_stale_runs() -> None:
+    """Mark runs left "running" by a previous process as interrupted."""
+    with session_scope() as db:
+        for run in db.scalars(select(PipelineRun).where(PipelineRun.status == "running")):
+            if utcnow() - (run.heartbeat_at or run.started_at) >= STALE_RUN:
+                run.status, run.finished_at = "error", utcnow()
+                run.log = (run.log or "") + "\ninterrupted (no heartbeat; the service restarted)"
+
+
+def run_analysis_only(trigger: str = "analysis") -> int | None:
+    """Recompute the patterns as a tracked run (shown on the pipeline page with
+    its progress). Returns the run id, or None if a run is in progress."""
+    init_db()
+    if not _local_lock.acquire(blocking=False):
+        return None
+    try:
+        run_id = _begin_run(trigger)
+        if run_id is None:
+            return None
+        rlog = RunLog()
+        rlog("recomputing patterns")
+        done = _start_heartbeat(run_id, rlog)
+        status = "ok"
+        try:
+            run_analysis_step(rlog)
+            if any("analysis failed" in line for line in rlog.lines):
+                status = "error"
+        finally:
+            done.set()
+            with session_scope() as db:
+                run = db.get(PipelineRun, run_id)
+                run.status, run.finished_at, run.log = status, utcnow(), rlog.text()
+        return run_id
+    finally:
+        _local_lock.release()
 
 
 def run_pipeline(trigger: str = "manual", sources: list[str] | None = None, limit: int | None = None) -> int | None:
@@ -480,35 +553,11 @@ def run_pipeline(trigger: str = "manual", sources: list[str] | None = None, limi
         log.info("pipeline already running in this process")
         return None
     try:
-        with session_scope() as db:
-            running = db.scalar(
-                select(PipelineRun).where(PipelineRun.status == "running").order_by(PipelineRun.started_at.desc())
-            )
-            if running and utcnow() - (running.heartbeat_at or running.started_at) < STALE_RUN:
-                log.info("pipeline run %d still in progress; skipping", running.id)
-                return None
-            if running:
-                running.status, running.finished_at = "error", utcnow()
-                running.log = (running.log or "") + "\ninterrupted (no heartbeat)"
-            run = PipelineRun(trigger=trigger)
-            db.add(run)
-            db.flush()
-            run_id = run.id
-
+        run_id = _begin_run(trigger)
+        if run_id is None:
+            return None
         rlog = RunLog()
-        done = threading.Event()
-
-        def heartbeat() -> None:
-            while not done.wait(HEARTBEAT_SECONDS):
-                try:
-                    with session_scope() as db:
-                        run = db.get(PipelineRun, run_id)
-                        run.heartbeat_at = utcnow()
-                        run.log = rlog.text()
-                except Exception:  # pragma: no cover - best effort
-                    log.exception("heartbeat failed")
-
-        threading.Thread(target=heartbeat, name="pipeline-heartbeat", daemon=True).start()
+        done = _start_heartbeat(run_id, rlog)
         seen = new = updated = 0
         status = "ok"
         processed = failed = 0

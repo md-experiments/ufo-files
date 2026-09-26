@@ -126,7 +126,6 @@ def test_llm_event_tagging_is_cached(env, monkeypatch):
     from ufo import llm
     from ufo.analyze import llm_tags
     from ufo.analyze.events import Account
-    from ufo.db import session_scope
 
     _use(monkeypatch, OPENAI_API_KEY="o")
     calls = []
@@ -145,15 +144,13 @@ def test_llm_event_tagging_is_cached(env, monkeypatch):
     text = "A silver disc hovered over the barn without a sound, then left. Johnny Sparks saw it too."
     form = "Sound: none. Shape: disc."
     accs = [Account(1, 0, text, ["disc", "hover", "sparks"], []), Account(2, 0, form, ["disc"], [])]
-    with session_scope() as db:
-        stats = llm_tags.refine(db, accs)
+    stats = llm_tags.refine(accs)
     assert stats["tagged"] == 2 and len(calls) == 1
     assert accs[0].tags == ["disc", "hover", "silent"]  # "Sparks" the person is gone
     assert accs[0].spans[0] == ["disc", 2, 13]
     assert accs[1].tags == []  # not an observation
     again = [Account(1, 0, text, ["disc"], [])]
-    with session_scope() as db:
-        assert llm_tags.refine(db, again)["cached"] == 1
+    assert llm_tags.refine(again)["cached"] == 1
     assert len(calls) == 1 and again[0].tags == ["disc", "hover", "silent"]
     assert llm_tags.tagger_id().startswith("openai:gpt-6-luna")
 

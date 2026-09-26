@@ -26,15 +26,12 @@ def units(doc: Document) -> list[tuple[int, str]]:
     return out
 
 
-def extract_document(db: Session, doc: Document, candidates: list | None = None) -> tuple[int, int]:
-    """Replace ``doc``'s observations and mentions. Returns (sighting units,
-    observations). Candidate sighting accounts are appended to ``candidates``
-    as (doc id, account); ``extract_all`` tags and stores them."""
+def extract_document(db: Session, doc: Document) -> tuple[int, int]:
+    """Replace ``doc``'s observations and mentions (its sighting accounts are
+    stored by ``extract_all``). Returns (sighting units, observations)."""
     db.execute(delete(Observation).where(Observation.document_id == doc.id))
     db.execute(delete(Mention).where(Mention.document_id == doc.id))
     db.execute(delete(Account).where(Account.document_id == doc.id))
-    if candidates is not None:
-        candidates.extend((doc.id, a) for a in candidates_for(units(doc)))
     max_date = doc.release.release_date if doc.release else date.today()
     sighting_units = n_obs = 0
     for page_no, text in units(doc):
@@ -62,21 +59,22 @@ def extract_document(db: Session, doc: Document, candidates: list | None = None)
     return sighting_units, n_obs
 
 
-def extract_all(db: Session) -> dict:
+def extract_all(db: Session, progress=None) -> dict:
+    progress = progress or (lambda *a: None)
     docs = db.scalars(
         select(Document).where(Document.status == "classified")
         .options(selectinload(Document.pages), selectinload(Document.release))
     ).all()
-    totals = {"documents": 0, "sighting_units": 0, "observations": 0}
-    candidates: list = []
+    # candidate sighting accounts first: an LLM (when configured) re-reads them,
+    # saving its tags as it goes, before this session writes anything
+    candidates = [(doc.id, a) for doc in docs for a in candidates_for(units(doc))]
+    tagging = refine([a for _, a in candidates], progress)
+    totals = {"documents": 0, "sighting_units": 0, "observations": 0, "tagging": tagging, "tagger": tagger_id()}
     for doc in docs:
-        u, o = extract_document(db, doc, candidates)
+        u, o = extract_document(db, doc)
         totals["documents"] += 1
         totals["sighting_units"] += u
         totals["observations"] += o
-    # an LLM, when configured, re-reads the candidate passages (cached by text)
-    totals["tagging"] = refine(db, [a for _, a in candidates])
-    totals["tagger"] = tagger_id()
     kept = 0
     for doc_id, a in candidates:
         if keep(a):

@@ -38,10 +38,13 @@ ANALYSIS_VERSION = 3  # bump when stored results change shape; triggers a rebuil
 MIN_PAIR_COUNT = 4  # co-occurrence pairs seen fewer times are noise
 
 
-def run_analysis() -> dict:
-    """Extract, analyse and store all results. Returns a short summary."""
+def run_analysis(progress=None) -> dict:
+    """Extract, analyse and store all results. Returns a short summary.
+    ``progress`` (a callable taking a %-format message and args) reports steps."""
+    progress = progress or (lambda *a: None)
     with session_scope() as db:
-        totals = extract_all(db)
+        totals = extract_all(db, progress)
+    progress("tagged %d sighting accounts; computing sighting types, map and connections", totals["accounts"])
     if totals["tagging"]["tagged"] or totals["tagging"]["failed"]:
         log.info("LLM tagging: %(tagged)d tagged, %(cached)d cached, %(failed)d failed (kept rules)", totals["tagging"])
     with session_scope() as db:

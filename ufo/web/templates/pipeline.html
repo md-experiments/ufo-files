@@ -1,5 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Pipeline · UFO Files{% endblock %}
+{% block title %}Pipeline · UFO Files{% if runs and runs[0].status == 'running' %}
+<script>
+// follow a running run: reload every 30 s (not while the token is being typed)
+setTimeout(function () { if (!document.activeElement || document.activeElement.id !== 'admin-token') location.reload(); }, 30000);
+</script>
+{% endif %}
+{% endblock %}
 {% block content %}
 <h1>Pipeline</h1>
 <p class="secondary">The pipeline checks the official PURSUE index for new records {% if settings.pipeline_interval_hours == 24 %}once a day{% else %}every {{ settings.pipeline_interval_hours | round(1) }} hours{% endif %}, downloads new files (falling back to the Internet Archive when the government site blocks the request), extracts text page by page with OCR for scanned pages, and classifies each record using <strong>{{ classifier }}</strong>. {% if settings.llm_available and settings.llm_tagging %}The same model tags sighting accounts with what was observed (keyword rules pick the candidate paragraphs).{% else %}Sighting accounts are tagged by keyword rules; set <code>ANTHROPIC_API_KEY</code> or <code>OPENAI_API_KEY</code> to have an LLM do the classification and tagging.{% endif %}</p>
@@ -40,7 +46,7 @@
         fetch(btn.getAttribute('data-run'), { method: 'POST', headers: { 'Authorization': 'Bearer ' + input.value } })
           .then(function (r) {
             if (r.status === 202 && btn.getAttribute('data-run').indexOf('pipeline') >= 0) { status.textContent = 'Started. This page refreshes in a few seconds; the run shows below.'; setTimeout(function () { location.reload(); }, 4000); }
-            else if (r.status === 202) { status.textContent = 'Started. The patterns update in a minute or two (longer the first time an LLM tags the accounts); the "last computed" time above changes when it is done.'; }
+            else if (r.status === 202) { status.textContent = 'Started. This page refreshes in a few seconds; the run shows below with its progress.'; setTimeout(function () { location.reload(); }, 4000); }
             else if (r.status === 401) { status.textContent = 'Wrong token.'; }
             else if (r.status === 409) { status.textContent = 'A run is already in progress; it ends by recomputing the patterns.'; }
             else { status.textContent = 'Failed (' + r.status + ').'; }
@@ -78,4 +84,10 @@
   </div>
   {% else %}<p class="muted">No runs yet.</p>{% endif %}
 </section>
+{% if runs and runs[0].status == 'running' %}
+<script>
+// follow a running run: reload every 30 s (not while the token is being typed)
+setTimeout(function () { if (!document.activeElement || document.activeElement.id !== 'admin-token') location.reload(); }, 30000);
+</script>
+{% endif %}
 {% endblock %}

@@ -21,10 +21,9 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
 from ..config import get_settings
-from ..db import TagCache
+from ..db import TagCache, session_scope
 from .events import DIMENSIONS, TAGS, Account
 
 log = logging.getLogger(__name__)
@@ -124,20 +123,24 @@ def _tag_batch(texts: list[str]) -> list[tuple[bool, list[str], list[list]]] | N
     return results
 
 
-def refine(db: Session, accounts: list[Account]) -> dict:
+def refine(accounts: list[Account], progress=None) -> dict:
     """Replace the rule-based tags of ``accounts`` with the LLM's, in place.
-    Returns counts: cached, tagged now, failed (kept rules)."""
+    Each batch's tags are saved as soon as they arrive, so an interrupted run
+    (a redeploy) resumes where it stopped. Returns counts: cached, tagged now,
+    failed (kept rules)."""
+    progress = progress or (lambda *a: None)
     s = get_settings()
     stats = {"cached": 0, "tagged": 0, "failed": 0}
     if not accounts or not (s.llm_available and s.llm_tagging):
         return stats
     model = s.llm_model
     keys = [_key(a.text, model) for a in accounts]
-    cached: dict[str, TagCache] = {}
+    cached: dict[str, tuple[bool, list, list]] = {}
     uniq = list(dict.fromkeys(keys))
-    for i in range(0, len(uniq), 500):
-        for row in db.scalars(select(TagCache).where(TagCache.key.in_(uniq[i:i + 500]))):
-            cached[row.key] = row
+    with session_scope() as db:
+        for i in range(0, len(uniq), 500):
+            for row in db.scalars(select(TagCache).where(TagCache.key.in_(uniq[i:i + 500]))):
+                cached[row.key] = (row.observation, list(row.tags), [list(x) for x in row.spans])
     todo: dict[str, str] = {}
     for a, k in zip(accounts, keys):
         if k not in cached:
@@ -145,32 +148,39 @@ def refine(db: Session, accounts: list[Account]) -> dict:
     if todo:
         items = list(todo.items())
         batches = [items[i:i + BATCH] for i in range(0, len(items), BATCH)]
-        log.info("LLM tagging %d new passages in %d requests (%s)", len(items), len(batches), model)
+        progress("LLM tagging %d passages in %d requests with %s (%d already done)",
+                 len(items), len(batches), model, len(uniq) - len(items))
 
         def run(batch):
             try:
                 return batch, _tag_batch([t for _, t in batch])
             except Exception as exc:  # network/API problems: keep the rules for these
                 log.warning("LLM tagging failed for a batch: %s", exc)
-                return batch, None
+                return batch, exc
 
+        done = errors = 0
         with ThreadPoolExecutor(max_workers=max(1, s.llm_workers)) as pool:
             for batch, res in pool.map(run, batches):
-                if res is None:
+                done += 1
+                if res is None or isinstance(res, Exception):
                     stats["failed"] += len(batch)
-                    continue
-                for (k, _), (obs, tags, spans) in zip(batch, res):
-                    row = TagCache(key=k, model=model, observation=obs, tags=tags, spans=spans)
-                    db.merge(row)
-                    cached[k] = row
-                    stats["tagged"] += 1
-        db.flush()
+                    errors += 1
+                    if errors <= 3:
+                        progress("LLM tagging batch failed (kept rules): %s", str(res or "declined")[:200])
+                else:
+                    with session_scope() as db:
+                        for (k, _), (obs, tags, spans) in zip(batch, res):
+                            db.merge(TagCache(key=k, model=model, observation=obs, tags=tags, spans=spans))
+                            cached[k] = (obs, tags, spans)
+                            stats["tagged"] += 1
+                if done % 25 == 0 or done == len(batches):
+                    progress("LLM tagging: %d/%d requests done, %d failed", done, len(batches), errors)
     for a, k in zip(accounts, keys):
-        row = cached.get(k)
-        if row is None:
+        if k not in cached:
             continue  # failed this time: rule tags stay
         if k not in todo:
             stats["cached"] += 1
-        a.tags = list(row.tags) if row.observation else []
-        a.spans = [list(x) for x in row.spans] if row.observation else []
+        obs, tags, spans = cached[k]
+        a.tags = list(tags) if obs else []
+        a.spans = [list(x) for x in spans] if obs else []
     return stats

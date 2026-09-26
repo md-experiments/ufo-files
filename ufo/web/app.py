@@ -49,19 +49,23 @@ def _last_finished_run() -> datetime | None:
     from ..db import PipelineRun
 
     with session_scope() as db:
-        return db.scalar(select(func.max(PipelineRun.started_at)).where(PipelineRun.finished_at.is_not(None)))
+        return db.scalar(select(func.max(PipelineRun.started_at)).where(
+            PipelineRun.finished_at.is_not(None), PipelineRun.trigger.not_like("analysis%")))
 
 
 def _refresh_outdated_analysis() -> None:
-    """Recompute patterns after an upgrade changed what the analysis stores."""
-    from ..analyze import analysis_outdated, run_analysis
+    """Recompute patterns after an upgrade or a new LLM key changed what the
+    analysis stores. Runs as a tracked run, shown on the pipeline page."""
+    from ..analyze import analysis_outdated
+    from ..pipeline import close_stale_runs, run_analysis_only
 
     try:
+        close_stale_runs()
         with session_scope() as db:
             outdated = analysis_outdated(db)
         if outdated:
-            log.info("analysis results are from an older version; recomputing")
-            run_analysis()
+            log.info("analysis results are outdated; recomputing")
+            run_analysis_only("analysis (startup)")
     except Exception:
         log.exception("analysis refresh failed")
 
@@ -448,21 +452,12 @@ def api_analyze(authorization: str | None = Header(default=None)):
     """Recompute the patterns (and LLM tagging of new passages) without
     checking sources. Refused while a pipeline run is in progress."""
     _require_admin(authorization)
-    from ..analyze import run_analysis
-    from ..pipeline import _local_lock
+    from ..pipeline import _local_lock, run_analysis_only
 
-    if not _local_lock.acquire(blocking=False):
-        raise HTTPException(409, "a pipeline run is in progress; it ends with the analysis")
-
-    def work():
-        try:
-            run_analysis()
-        except Exception:
-            log.exception("analysis run failed")
-        finally:
-            _local_lock.release()
-
-    threading.Thread(target=work, name="analysis", daemon=True).start()
+    if _local_lock.locked():
+        raise HTTPException(409, "a run is in progress; it ends with the analysis")
+    threading.Thread(target=run_analysis_only, kwargs={"trigger": "analysis (admin)"},
+                     name="analysis", daemon=True).start()
     return JSONResponse({"started": True}, status_code=202)
 
 
