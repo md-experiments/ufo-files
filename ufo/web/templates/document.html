@@ -11,6 +11,12 @@
     <div class="card" style="margin: 14px 0">
       <h2>Summary <small>{{ 'written by ' ~ doc.classifier if doc.classifier and doc.classifier != 'rules' else "publisher's description" }}</small></h2>
       <p>{{ doc.summary }}</p>
+      {% if description_rest %}
+      <details class="page-text inline">
+        <summary>Read the rest of the publisher's description</summary>
+        <pre style="font-family: var(--sans); font-size: .9rem">{{ description_rest }}</pre>
+      </details>
+      {% endif %}
       {% if doc.key_points %}
       <ul class="keypoints">{% for k in doc.key_points %}<li>{{ k }}</li>{% endfor %}</ul>
       {% endif %}
@@ -20,7 +26,7 @@
     </div>
     {% endif %}
 
-    {% if doc.description and doc.description != doc.summary %}
+    {% if doc.description and doc.description != doc.summary and not description_rest %}
     <details class="page-text" {{ 'open' if not doc.summary }}>
       <summary><strong>Full publisher's description</strong></summary>
       <pre style="font-family: var(--sans); font-size: .9rem">{{ doc.description }}</pre>
@@ -78,7 +84,15 @@
       {% endfor %}
     </div>
     {% elif doc.media_type == 'pdf' %}
-      <div class="empty">Text not extracted yet (status: {{ doc.status }}{% if doc.error %}: {{ doc.error | truncate(200) }}{% endif %}).</div>
+      {% if doc.status == 'unavailable' %}
+      <div class="empty">The government site is blocking downloads of this file and no archived copy exists yet. The pipeline keeps retrying on every run.{% if doc.file_url %} <a href="{{ doc.file_url }}" rel="noopener">Open the original ↗</a>{% endif %}<br><a class="small" href="/pipeline#problems">Technical details on the pipeline page →</a></div>
+      {% elif doc.status == 'failed' %}
+      <div class="empty">This file could not be read. The pipeline will try again.{% if doc.file_url %} <a href="{{ doc.file_url }}" rel="noopener">Open the original ↗</a>{% endif %}<br><a class="small" href="/pipeline#problems">Technical details on the pipeline page →</a></div>
+      {% elif not doc.file_url %}
+      <div class="empty">No file was published for this record.</div>
+      {% else %}
+      <div class="empty">This file is waiting to be {{ 'read' if doc.status == 'downloaded' else 'downloaded' }}. Check back after the next pipeline run.{% if doc.file_url %} <a href="{{ doc.file_url }}" rel="noopener">Open the original ↗</a>{% endif %}</div>
+      {% endif %}
     {% endif %}
   </div>
 
@@ -88,12 +102,12 @@
       <dl class="kv">
         <dt>Agency</dt><dd>{{ doc.agency or '—' }}</dd>
         <dt>Released</dt><dd>{{ doc.release.release_date | d if doc.release else '—' }}</dd>
-        <dt>Incident date</dt><dd>{{ doc.incident_date_raw or '—' }}</dd>
+        <dt>{{ date_label(doc.document_kind, doc.title, doc.media_type) }}</dt><dd>{{ incident_date(doc.incident_date_raw, doc.incident_date, doc.incident_year) }}</dd>
         <dt>Location</dt><dd>{{ doc.incident_location or '—' }}</dd>
         {% if doc.page_count %}<dt>Pages</dt><dd>{{ doc.page_count }}{% if doc.ocr_page_count %} ({{ doc.ocr_page_count }} OCR){% endif %}</dd>{% endif %}
         <dt>Original</dt><dd>{% if doc.file_url %}<a href="{{ doc.file_url }}" rel="noopener">{{ 'Watch on DVIDS' if doc.media_type in ('video', 'audio') else 'Open file' }} ↗</a>{% else %}—{% endif %}</dd>
         {% if doc.fetched_via == 'wayback' and doc.file_url %}<dt>Archived copy</dt><dd><a href="https://web.archive.org/web/2026/{{ doc.file_url }}" rel="noopener">Wayback Machine ↗</a></dd>{% endif %}
-        <dt>Classified by</dt><dd>{{ 'keyword rules' if doc.classifier == 'rules' else (doc.classifier or '—') }}</dd>
+        <dt>Classified by</dt><dd>{{ 'keyword rules' if doc.classifier == 'rules' else (doc.classifier or 'not yet classified') }}</dd>
       </dl>
     </div>
     <div class="card facet-groups" style="margin-top: 12px">
@@ -107,6 +121,9 @@
       {% endif %}
       {% if doc.classification and doc.classification.people_and_organizations %}
       <div><h3>People & organizations</h3><div class="chips">{% for l in doc.classification.people_and_organizations %}<span class="chip">{{ l }}</span>{% endfor %}</div></div>
+      {% endif %}
+      {% if groups %}
+      <p class="muted small" style="margin:10px 0 0">Labels are generated automatically. <a href="{{ issues_url }}?title={{ ('Wrong label on ' ~ doc.record_id) | urlencode }}&body={{ ('Record: ' ~ request.url ~ '\n\nWrong label: \n\nWhy: ') | urlencode }}" rel="noopener">Wrong label? Report it ↗</a></p>
       {% endif %}
     </div>
     {% if patterns.similar or patterns.types %}

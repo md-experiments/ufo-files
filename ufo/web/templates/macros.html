@@ -23,7 +23,7 @@
     <span class="rid">{{ d.record_id }}</span>
     <span class="badge">{{ d.media_type }}</span>
     {% if d.agency %}<span>{{ d.agency }}</span>{% endif %}
-    {% if d.incident_date_raw or d.incident_year %}<span>Incident: {{ d.incident_date_raw or d.incident_year }}</span>{% endif %}
+    {% if d.incident_date_raw or d.incident_year %}<span>{{ 'Dated' if date_label(d.document_kind, d.title, d.media_type) == 'Document date' else 'Incident' }}: {{ incident_date(d.incident_date_raw, d.incident_date, d.incident_year) }}</span>{% endif %}
     {% if d.incident_location %}<span>{{ d.incident_location }}</span>{% endif %}
     {% if show_release and d.release %}<span>{{ d.release.label }}</span>{% endif %}
     {% if d.page_count %}<span>{{ d.page_count }} page{{ 's' if d.page_count != 1 }}{% if d.ocr_page_count %} · {{ d.ocr_page_count }} OCR{% endif %}</span>{% endif %}

@@ -9,18 +9,23 @@ from datetime import date, datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup, escape
+from sqlalchemy import select
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from urllib.parse import urlencode
 
 from .. import __version__
 from ..classify.taxonomy import FACET_LABELS, FACETS, label
 from ..config import get_settings
-from ..db import init_db, session_scope
+from ..db import AnalysisResult, Document, init_db, session_scope
 from . import patterns as P
 from . import queries as Q
+from .fmt import DATE_FMT, date_label, description_remainder, fmt_date, incident_date_text
 
 log = logging.getLogger(__name__)
 # uvicorn only configures its own loggers; surface the pipeline's progress in
@@ -32,6 +37,7 @@ if not logging.getLogger("ufo").handlers:
     logging.getLogger("ufo").setLevel(logging.INFO)
 HERE = Path(__file__).resolve().parent
 SEED = HERE.parent.parent / "data" / "seed" / "ufo-seed.json.gz"
+ISSUES_URL = "https://github.com/md-experiments/ufo-files/issues/new"
 
 templates = Jinja2Templates(directory=str(HERE / "templates"))
 _stop = threading.Event()
@@ -183,8 +189,13 @@ def _ago(dt: datetime | None) -> str:
     return "just now"
 
 
-def _date(d: date | None, fmt: str = "%b %-d, %Y") -> str:
-    return d.strftime(fmt) if d else "—"
+def _date(d: date | None, fmt: str = DATE_FMT) -> str:
+    return fmt_date(d, fmt)
+
+
+def _iso(dt: datetime | None) -> str | None:
+    """Timestamps are stored as naive UTC; say so in the API."""
+    return dt.isoformat() + "Z" if dt else None
 
 
 def _highlight(text: str, q: str | None, width: int = 220) -> Markup:
@@ -214,11 +225,51 @@ templates.env.filters["d"] = _date
 templates.env.globals.update(
     label=label, FACET_LABELS=FACET_LABELS, FACETS=FACETS, MEDIA_LABELS=Q.MEDIA_LABELS,
     MEDIA_ORDER=Q.MEDIA_ORDER, highlight=_highlight, url=_url, version=__version__, asset_version=ASSET_VERSION,
+    incident_date=incident_date_text, date_label=date_label, issues_url=ISSUES_URL,
 )
 
 
-def render(request: Request, name: str, **ctx) -> HTMLResponse:
-    return templates.TemplateResponse(request, name, ctx)
+def render(request: Request, name: str, status_code: int = 200, **ctx) -> HTMLResponse:
+    return templates.TemplateResponse(request, name, ctx, status_code=status_code)
+
+
+# ---------------------------------------------------------------------------
+# Error pages: HTML for the site, JSON for /api/*
+# ---------------------------------------------------------------------------
+
+ERROR_TITLES = {
+    400: "That request couldn't be understood",
+    401: "Not authorised",
+    404: "Page not found",
+    409: "Try again in a moment",
+    500: "Something went wrong",
+}
+
+
+def _wants_json(request: Request) -> bool:
+    return request.url.path.startswith("/api/") or request.url.path == "/healthz"
+
+
+def _error_page(request: Request, status: int, detail: str | None = None) -> HTMLResponse:
+    return render(request, "error.html", status_code=status, status=status,
+                  title=ERROR_TITLES.get(status, "Something went wrong"), detail=detail)
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _http_error(request: Request, exc: StarletteHTTPException):
+    if _wants_json(request):
+        return await http_exception_handler(request, exc)
+    return _error_page(request, exc.status_code, exc.detail if isinstance(exc.detail, str) else None)
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error(request: Request, exc: RequestValidationError):
+    if _wants_json(request):
+        return await request_validation_exception_handler(request, exc)
+    # a bad path segment (/documents/abc) is a page that doesn't exist; a bad
+    # query value is a request we can't act on
+    in_path = any((e.get("loc") or [None])[0] == "path" for e in exc.errors())
+    return _error_page(request, 404 if in_path else 400)
 
 
 def _parse_tags(values: list[str]) -> list[tuple[str, str]]:
@@ -271,15 +322,28 @@ def documents(
     media: str | None = None,
     tag: list[str] = Query(default=[]),
     sort: str = "release",
-    page: int = Query(1, ge=1),
+    page: str | None = None,
 ):
     tags = _parse_tags(tag)
+    page_no = _page_number(page)
     with session_scope() as db:
-        res = Q.search(db, q=q, release=release, agency=agency, media=media, tags=tags, sort=sort, page=page)
+        res = Q.search(db, q=q, release=release, agency=agency, media=media, tags=tags, sort=sort, page=page_no)
+        if page_no > res.pages:
+            # past the end (the list shrank, or a typo): go to the last page
+            return RedirectResponse(_url("/documents", q=q, release=release, agency=agency, media=media, sort=sort,
+                                         tag=tag, page=res.pages if res.pages > 1 else None), status_code=302)
         return render(
             request, "documents.html", res=res, q=q or "", release=release, agency=agency, media=media,
             tags=tags, tag_values=tag, sort=sort, releases=Q.releases(db), agencies=Q.agencies(db),
         )
+
+
+def _page_number(value: str | None) -> int:
+    """``page=0``, ``page=-1`` and ``page=abc`` mean the first page."""
+    try:
+        return max(1, int(value or 1))
+    except ValueError:
+        return 1
 
 
 @app.get("/documents/{doc_id}", response_class=HTMLResponse)
@@ -289,7 +353,8 @@ def document(request: Request, doc_id: int):
         if not doc:
             raise HTTPException(404, "document not found")
         return render(request, "document.html", doc=doc, groups=Q.grouped_tags(doc), related=Q.related(db, doc),
-                      patterns=P.document_patterns(db, doc))
+                      patterns=P.document_patterns(db, doc),
+                      description_rest=description_remainder(doc.summary, doc.description))
 
 
 @app.get("/documents/{doc_id}/text.txt", response_class=PlainTextResponse)
@@ -313,7 +378,7 @@ def releases_page(request: Request):
                 **r,
                 "topics": Q.facet_counts(db, "topic", r["id"], limit=6),
                 "kinds": Q.facet_counts(db, "kind", r["id"], limit=5),
-                "agencies": Q.facet_counts(db, "agency", r["id"], limit=6),
+                "agencies": Q.agency_counts(db, r["id"], limit=6),
                 "highlights": Q.highlights(db, r["id"], limit=5),
             })
         return render(request, "releases.html", releases=detail, visuals=P.releases_visuals(db))
@@ -367,19 +432,18 @@ def api_patterns():
         r.pop("similar", None)
         r.pop("tag_weights", None)
         if "computed_at" in r:
-            r["computed_at"] = r["computed_at"].isoformat()
+            r["computed_at"] = _iso(r["computed_at"])
         return r
 
 
 @app.get("/pipeline", response_class=HTMLResponse)
 def pipeline_page(request: Request):
     s = get_settings()
-    from ..db import AnalysisResult
-
     with session_scope() as db:
         computed = db.get(AnalysisResult, "overview")
         return render(
             request, "pipeline.html", runs=Q.runs(db), statuses=Q.status_counts(db), stats=Q.overview(db),
+            problems=Q.problem_records(db),
             settings=s, admin_enabled=bool(s.admin_token),
             analysis_at=computed.computed_at if computed else None,
             classifier=(f'{ {"anthropic": "Claude", "openai": "OpenAI"}[s.llm_provider] } ({s.llm_model})'
@@ -417,8 +481,8 @@ def api_stats():
         o = Q.overview(db)
         return {
             "records": o["records"], "documents": o["documents"], "pages": o["pages"], "ocr_pages": o["ocr_pages"],
-            "releases": Q.releases(db), "last_run": o["last_run"].started_at.isoformat() if o["last_run"] else None,
-            "facets": {f: Q.facet_counts(db, f) for f in list(FACETS) + ["agency"]},
+            "releases": Q.releases(db), "last_run": _iso(o["last_run"].started_at) if o["last_run"] else None,
+            "facets": {**{f: Q.facet_counts(db, f) for f in FACETS}, "agency": Q.agency_counts(db)},
         }
 
 
@@ -470,6 +534,32 @@ def api_run(authorization: str | None = Header(default=None)):
 
     threading.Thread(target=run_pipeline, kwargs={"trigger": "api"}, daemon=True).start()
     return JSONResponse({"started": True}, status_code=202)
+
+
+@app.get("/robots.txt", response_class=PlainTextResponse)
+def robots(request: Request):
+    base = str(request.base_url).rstrip("/")
+    return "\n".join(["User-agent: *", "Allow: /", "Disallow: /api/", "Disallow: /pipeline",
+                      f"Sitemap: {base}/sitemap.xml", ""])
+
+
+@app.get("/sitemap.xml")
+def sitemap(request: Request):
+    """Every page worth indexing: the sections, each record, each sighting type."""
+    base = str(request.base_url).rstrip("/")
+    urls: list[tuple[str, date | None]] = [(p, None) for p in ("/", "/releases", "/patterns", "/patterns/links", "/documents")]
+    with session_scope() as db:
+        for doc_id, updated in db.execute(select(Document.id, Document.updated_at).order_by(Document.id)):
+            urls.append((f"/documents/{doc_id}", updated.date() if updated else None))
+        clusters = db.get(AnalysisResult, "clusters")
+        for c in (clusters.data if clusters else []) or []:
+            if "signature" in c:  # the ones with their own page
+                urls.append((f"/patterns/types/{c['id']}", None))
+    body = ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
+    for path, lastmod in urls:
+        body.append(f"<url><loc>{escape(base + path)}</loc>" + (f"<lastmod>{lastmod.isoformat()}</lastmod>" if lastmod else "") + "</url>")
+    body.append("</urlset>")
+    return Response("\n".join(body), media_type="application/xml")
 
 
 @app.get("/healthz")

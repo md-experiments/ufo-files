@@ -181,6 +181,26 @@ def agencies(db: Session) -> list[tuple[str, int]]:
     )]
 
 
+def agency_counts(db: Session, release_id: int | None = None, limit: int | None = None) -> list[dict]:
+    """Records per agency, counted from the published listing: every record
+    counts, including ones whose file could not be downloaded yet."""
+    q = select(Document.agency, func.count()).where(Document.agency.is_not(None))
+    if release_id:
+        q = q.where(Document.release_id == release_id)
+    q = q.group_by(Document.agency).order_by(func.count().desc(), Document.agency)
+    if limit:
+        q = q.limit(limit)
+    return [{"value": a, "label": a, "n": n} for a, n in db.execute(q)]
+
+
+def problem_records(db: Session) -> list[Document]:
+    """Records whose file could not be fetched or processed, with the error."""
+    return list(db.scalars(
+        select(Document).options(selectinload(Document.release))
+        .where(Document.status.in_(("unavailable", "failed"))).order_by(Document.status, Document.record_id)
+    ))
+
+
 def document(db: Session, doc_id: int) -> Document | None:
     return db.scalar(
         select(Document).options(selectinload(Document.tags), selectinload(Document.pages), selectinload(Document.release))
@@ -216,6 +236,6 @@ def grouped_tags(doc: Document) -> list[tuple[str, str, list[tuple[str, str]]]]:
 
 __all__ = [
     "MEDIA_LABELS", "MEDIA_ORDER", "overview", "releases", "facet_counts", "era_counts", "top_locations",
-    "highlights", "latest_release", "search", "agencies", "document", "related", "status_counts", "runs",
-    "grouped_tags", "Page",
+    "highlights", "latest_release", "search", "agencies", "agency_counts", "problem_records", "document", "related",
+    "status_counts", "runs", "grouped_tags", "Page",
 ]

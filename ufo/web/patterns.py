@@ -13,6 +13,7 @@ from ..analyze.places import place_label
 from ..classify.taxonomy import FACETS, label
 from ..db import Account, Document, Mention, Observation, Release, Tag
 from . import charts
+from .fmt import incident_date_text
 
 MEDIA_CLS = {"pdf": "s-pdf", "video": "s-video", "image": "s-image", "audio": "s-audio"}
 
@@ -181,7 +182,7 @@ def releases_visuals(db: Session) -> dict:
     by_rel = defaultdict(list)
     for d in docs:
         by_rel[d.release_id].append(d)
-    strip = [{"label": r.label.split(" · ")[0] + " · " + r.release_date.strftime("%b %-d"),
+    strip = [{"label": r.label.split(" · ")[0] + " · " + r.release_date.strftime("%-d %b"),
               "short": f"R{r.number}" if r.number else r.release_date.strftime("%b"),
               "docs": [{"id": d.id, "title": d.title, "year": d.incident_year} for d in by_rel[r.id]]}
              for r in rels]
@@ -388,8 +389,8 @@ def compare(db: Session, a_id: int, b_id: int) -> dict | None:
 
     facts = [
         {"label": "Agency", "a": a.agency or "—", "b": b.agency or "—", "same": bool(a.agency) and norm(a.agency) == norm(b.agency)},
-        {"label": "Incident date", "a": a.incident_date_raw or (str(a.incident_year) if a.incident_year else "—"),
-         "b": b.incident_date_raw or (str(b.incident_year) if b.incident_year else "—"),
+        {"label": "Date", "a": incident_date_text(a.incident_date_raw, a.incident_date, a.incident_year),
+         "b": incident_date_text(b.incident_date_raw, b.incident_date, b.incident_year),
          "same": bool(a.incident_year) and a.incident_year == b.incident_year},
         {"label": "Location", "a": a.incident_location or "—", "b": b.incident_location or "—",
          "same": bool(a.incident_location) and norm(a.incident_location) == norm(b.incident_location)},

@@ -68,7 +68,14 @@ taxonomy (`ufo/classify/taxonomy.py`):
 
 * The **keyword rules** classifier always runs and needs no API key. It uses the
   publisher's title and description (high weight) and the extracted text (the
-  number of matches required grows with document length).
+  number of matches required grows with document length). Some phrases only
+  count in the publisher's text: "Air Force Base" and "Squadron" are on the
+  letterhead of every Blue Book file, and "military" alone or a branch name
+  does not make a military encounter. A sensor the text mentions in passing
+  is ignored when the incident predates it (no infrared / FLIR before 1965,
+  no satellites before 1957). When the rules change (`RULES_VERSION` in
+  `ufo/classify/__init__.py`), records they classified are re-labelled on the
+  next run.
 * When an LLM key is set, the model classifies each record from its metadata
   and extracted text using structured outputs. That adds a plain-language
   summary, key points, a 1–5 significance score, and the places, people and
@@ -186,11 +193,22 @@ Run it by hand with `python -m ufo analyze`.
   the details found in the record (with quotes), its tagged sighting accounts,
   similar records elsewhere and
   the sighting types it contains, a link to the original, and the extracted text page by
-  page, with OCR pages and their confidence marked.
-* **Pipeline** (`/pipeline`): processing status and recent runs with logs.
+  page, with OCR pages and their confidence marked. When the rules-based
+  summary is just the opening of the publisher's description, the rest of the
+  description folds under it. Contracts, letters and studies show a
+  "Document date" rather than an "Incident date". A record whose file the
+  government site is still blocking says so in plain words and links to the
+  original; the fetch errors are listed on the pipeline page.
+* **Pipeline** (`/pipeline`): records by processing stage (waiting to download
+  / extract / classify), recent runs with logs, and the files that could not
+  be fetched.
 * **JSON API**: `/api/stats`, `/api/patterns`, `/api/documents?q=&release=&agency=&media=&tag=facet:value`,
-  `/api/documents/{id}`. `POST /api/pipeline/run` with
+  `/api/documents/{id}`. Timestamps are UTC and end in `Z`. `POST /api/pipeline/run` with
   `Authorization: Bearer $ADMIN_TOKEN` triggers a run.
+* Dates are shown as `2 Jul 1952` everywhere. Unknown pages and bad ids get
+  an HTML error page with a way back (the API keeps JSON errors); a page
+  number past the end redirects to the last page. `/robots.txt` and
+  `/sitemap.xml` list every record page for search engines.
 
 The web process runs the pipeline in a background thread on startup and then
 every `PIPELINE_INTERVAL_HOURS` (once a day by default), counted from the last finished run so redeploys

@@ -14,7 +14,10 @@ from .taxonomy import era_for_year
 # facet -> value -> regex (case-insensitive, matched on word boundaries)
 RULES: dict[str, dict[str, str]] = {
     "topic": {
-        "military_encounter": r"military|air force|navy|army|marine corps|squadron|combatant command|centcom|indopacom|northcom|eucom|africom|misrep|mission report|range fouler|isr|warship|carrier strike",
+        # Branch names alone don't make an encounter: every Blue Book file mentions
+        # the Air Force, since it ran the program. Require a unit, base, aircrew
+        # or an operational report.
+        "military_encounter": r"military (?:pilots?|aircrews?|aviators?|personnel|service ?members?|witness(?:es)?|sources?|observers?|operators?|platforms?|systems?|sensors?|bases?|installations?|compounds?|aircraft|jets?|radar|units?)|air force (?:pilots?|jets?|aircraft|radar|crews?|personnel|interceptors?)|navy (?:pilots?|ships?|vessels?|aircraft|carriers?|aviators?|radar|personnel|crews?)|(?:army|marine corps) (?:personnel|bases?|posts?|units?|soldiers?)|(?:u\.s\.|united states) (?:navy|air force|army|marine corps) (?:unidentified|uap|ufo)|fighter (?:pilots?|jets?)|interceptors?|scrambled|combatant command|centcom|indopacom|northcom|eucom|africom|southcom|misrep|mission report|range fouler|isr|warship|carrier strike",
         "aviation": r"pilots?|aircrew|cockpit|fighter|f-?\d{2}|mq-9|reaper|aircraft|airliner|faa",
         "nuclear": r"nuclear|atomic|los alamos|sandia|oak ridge|hanford|icbm|missile (?:silo|site|facility)|minuteman|weapons storage|department of energy|nnsa",
         "space": r"astronauts?|apollo|gemini|mercury|skylab|space shuttle|iss\b|orbit(?:al)?|lunar|moon|nasa",
@@ -62,7 +65,8 @@ RULES: dict[str, dict[str, str]] = {
     "sensor": {
         "visual": r"visually|observed|eyewitness|saw|naked eye|sighted",
         "radar": r"radar",
-        "infrared": r"infrared|\bir\b|flir|thermal|eo/ir",
+        # not a bare "IR" (OCR noise in old scans) or "thermal" (air currents)
+        "infrared": r"infrared|flir|eo/ir|forward[- ]looking infrared|ir (?:sensors?|cameras?|pods?|imag(?:e|es|ery|ing)|video|footage|signatures?|targeting)|thermal (?:imag(?:e|es|ery|ing)|cameras?|sensors?|signatures?|video|footage)",
         "video": r"video|fmv|full motion|footage|film",
         "photo": r"photo(?:graph)?s?|images?|camera|still frame",
         "satellite": r"satellite|space-based",
@@ -92,6 +96,8 @@ ASSESSMENT_RULES = [
 ]
 
 KIND_RULES = [
+    # contract paperwork first: a "Statement of Objectives" is not a witness statement
+    ("administrative", r"statement of (?:objectives|work)|solicitation|contract (?:award|modification)|purchase order|budget"),
     ("mission_report", r"mission report|misrep|range fouler|debrief|unresolved uap report"),
     ("diplomatic_cable", r"cable|department of state|embassy|telegram"),
     ("transcript", r"transcript|technical crew debriefing|air-to-ground|onboard voice"),
@@ -100,7 +106,7 @@ KIND_RULES = [
     ("witness_statement", r"statement|narrative|interview|testimony|usper"),
     ("intelligence_report", r"intelligence|information report|cia|dia\b"),
     ("analysis", r"analysis|assessment|case resolution|update"),
-    ("administrative", r"contract|solicitation|statement of objectives|order|budget"),
+    ("administrative", r"contract|solicitation|order|budget"),
     ("correspondence", r"memo(?:randum)?|letter|correspondence"),
 ]
 
@@ -123,11 +129,26 @@ WORLD_REGIONS = {
 }
 
 
+# Phrases that only count in the publisher's title and description: in the
+# body text they are letterheads and return addresses ("Wright-Patterson Air
+# Force Base", "4602d Air Intelligence Service Squadron") on every Blue Book
+# file, whatever it is about.
+META_ONLY_RULES: dict[tuple[str, str], str] = {
+    ("topic", "military_encounter"): r"air force bases?|squadrons?",
+}
+
+# A sensor the body text mentions in passing (in a later analysis, say)
+# cannot have recorded an incident that predates the technology. Applies to
+# text matches only; the publisher's own title or description always counts.
+SENSOR_MIN_YEAR = {"infrared": 1965, "satellite": 1957}
+
+
 def _rx(pattern: str) -> re.Pattern:
     return re.compile(rf"(?<![A-Za-z0-9])(?:{pattern})(?![A-Za-z0-9])", re.IGNORECASE)
 
 
 _COMPILED = {facet: {v: _rx(p) for v, p in vals.items()} for facet, vals in RULES.items()}
+_META_ONLY = {k: _rx(p) for k, p in META_ONLY_RULES.items()}
 _ASSESS = [(v, re.compile(p, re.IGNORECASE)) for v, p in ASSESSMENT_RULES]
 _KIND = [(v, _rx(p)) for v, p in KIND_RULES]
 _US = {k: _rx(p) for k, p in US_REGIONS.items()}
@@ -140,6 +161,18 @@ class RuleResult:
     tags: dict[str, list[str]] = field(default_factory=dict)
     assessment: str = "not_assessed"
     kind: str = "other"
+
+
+def kind_from_title(title: str, media_type: str = "pdf") -> str:
+    """A record's document kind from its published title alone: enough to
+    label a record whose file has not been fetched yet."""
+    return classify_rules(title, None, None, media_type).kind
+
+
+def _anachronistic(facet: str, value: str, incident_year: int | None) -> bool:
+    if facet != "sensor" or not incident_year:
+        return False
+    return incident_year < SENSOR_MIN_YEAR.get(value, 0)
 
 
 def region_for_location(location: str | None) -> str | None:
@@ -185,7 +218,10 @@ def classify_rules(
     for facet, rules in _COMPILED.items():
         values = []
         for value, rx in rules.items():
-            if rx.search(meta) or (body and len(rx.findall(body)) >= min_hits):
+            meta_rx = _META_ONLY.get((facet, value))
+            if rx.search(meta) or (meta_rx and meta_rx.search(meta)):
+                values.append(value)
+            elif body and len(rx.findall(body)) >= min_hits and not _anachronistic(facet, value, incident_year):
                 values.append(value)
         if values:
             res.tags[facet] = values

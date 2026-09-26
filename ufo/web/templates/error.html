@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} · UFO Files{% endblock %}
+{% block content %}
+<div class="error-page">
+  <div class="eyebrow">{{ status }}</div>
+  <h1>{{ title }}</h1>
+  {% if status == 404 %}
+  <p class="secondary">There is no page at <code>{{ request.url.path }}</code>. Records may have been renumbered by a new release, so try searching for the record instead.</p>
+  {% elif status == 400 %}
+  <p class="secondary">Something in the address <code>{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}</code> isn't valid{% if detail %}: {{ detail }}{% endif %}.</p>
+  {% elif detail %}
+  <p class="secondary">{{ detail }}</p>
+  {% endif %}
+  <p><a class="btn" href="/documents">Browse the files</a> <a class="btn ghost" href="/">Overview</a></p>
+</div>
+{% endblock %}

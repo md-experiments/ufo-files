@@ -55,7 +55,7 @@
       </a>
       {% endfor %}
     </div>
-    <div class="col-labels">{% for r in releases %}<span title="{{ r.label }}">{{ r.date.strftime('%b %-d') }}</span>{% endfor %}</div>
+    <div class="col-labels">{% for r in releases %}<span title="{{ r.label }}">{{ r.date.strftime('%-d %b') }}</span>{% endfor %}</div>
     {% else %}<p class="muted">No releases recorded yet.</p>{% endif %}
   </div>
   <div class="card">

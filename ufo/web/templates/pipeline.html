@@ -10,9 +10,11 @@ setTimeout(function () { if (!document.activeElement || document.activeElement.i
 <h1>Pipeline</h1>
 <p class="secondary">The pipeline checks the official PURSUE index for new records {% if settings.pipeline_interval_hours == 24 %}once a day{% else %}every {{ settings.pipeline_interval_hours | round(1) }} hours{% endif %}, downloads new files (falling back to the Internet Archive when the government site blocks the request), extracts text page by page with OCR for scanned pages, and classifies each record using <strong>{{ classifier }}</strong>. {% if settings.llm_available and settings.llm_tagging %}The same model tags sighting accounts with what was observed (keyword rules pick the candidate paragraphs).{% else %}Sighting accounts are tagged by keyword rules; set <code>ANTHROPIC_API_KEY</code> or <code>OPENAI_API_KEY</code> to have an LLM do the classification and tagging.{% endif %}</p>
 
-<section class="tiles">
-  {% for s in ['classified', 'extracted', 'downloaded', 'new', 'unavailable', 'failed'] %}
-  <div class="tile"><div class="v">{{ statuses.get(s, 0) | n }}</div><div class="k">{{ s | title }}</div></div>
+<section class="tiles" aria-label="Records by processing stage">
+  {% for s, k, sub in [('classified', 'Classified', 'done'), ('extracted', 'Waiting to classify', 'text extracted'),
+                       ('downloaded', 'Waiting to extract', 'file downloaded'), ('new', 'Waiting to download', 'listed, no file yet'),
+                       ('unavailable', 'Unavailable', 'download blocked; retried every run'), ('failed', 'Failed', 'could not be read')] %}
+  <div class="tile"><div class="v">{{ statuses.get(s, 0) | n }}</div><div class="k">{{ k }}</div><div class="s">{{ sub }}</div></div>
   {% endfor %}
 </section>
 
@@ -84,6 +86,30 @@ setTimeout(function () { if (!document.activeElement || document.activeElement.i
   </div>
   {% else %}<p class="muted">No runs yet.</p>{% endif %}
 </section>
+
+{% if problems %}
+<section class="section card" id="problems">
+  <h2>Files that could not be fetched <small>{{ problems | length }} record{{ 's' if problems | length != 1 }}</small></h2>
+  <p class="secondary small">The government site blocks downloads from some networks and the Internet Archive has no copy yet. Each run retries these and asks the Archive to capture them, and falls back to the release's zip bundle when one is linked.</p>
+  <details>
+    <summary class="small muted">Show the records and their errors</summary>
+    <div class="table-scroll">
+    <table class="data">
+      <thead><tr><th>Record</th><th>Release</th><th>Status</th><th class="num">Attempts</th><th>Error</th></tr></thead>
+      <tbody>
+      {% for d in problems %}
+      <tr>
+        <td><a href="/documents/{{ d.id }}">{{ d.record_id }}</a></td><td>{{ d.release.label if d.release else '—' }}</td>
+        <td>{{ d.status }}</td><td class="num">{{ d.attempts }}</td>
+        <td><code class="small">{{ d.error or '—' }}</code></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </details>
+</section>
+{% endif %}
 {% if runs and runs[0].status == 'running' %}
 <script>
 // follow a running run: reload every 30 s (not while the token is being typed)

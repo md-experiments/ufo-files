@@ -73,3 +73,35 @@ def test_hoax_needs_an_actual_finding():
     assert classify_rules("Study", "Reports consistent with real objects rather than fabrications.", None, "pdf").assessment != "hoax"
     assert classify_rules("Cable", "The embassy characterized the reports as a fabrication originating in Rio.", None, "pdf").assessment == "hoax"
     assert classify_rules("Memo", "The photo was a hoax.", None, "pdf").assessment == "hoax"
+
+
+def test_sensor_tags_need_real_evidence():
+    # OCR noise ("ir" fragments) and "thermal air currents" are not infrared sensors
+    body = ("The objects were sea gulls soaring on a thermal air current. Cy of ltr ir file. " * 40)
+    r = classify_rules("Project Blue Book File on Tremonton Film, Utah, 1952", None, body, "pdf", incident_year=1952)
+    assert "infrared" not in r.tags.get("sensor", [])
+    # a later analysis mentioning FLIR cannot have recorded a 1952 film
+    body = "The FLIR pod recorded a thermal signature. " * 40
+    assert "infrared" not in classify_rules("Film, 1952", None, body, "pdf", incident_year=1952).tags.get("sensor", [])
+    assert "infrared" in classify_rules("Report, 2021", None, body, "pdf", incident_year=2021).tags.get("sensor", [])
+    # the publisher's own description always counts
+    assert "infrared" in classify_rules("Film", "Recorded on an infrared camera.", None, "pdf", incident_year=1952).tags["sensor"]
+
+
+def test_military_encounter_needs_more_than_a_branch_name():
+    # an Air Force investigation of a civilian's film is not a military encounter
+    desc = ("Project Blue Book was a U.S. Air Force program. The witness, a U.S. Navy Warrant Officer on leave, "
+            "filmed the objects. The Air Force's assessment favored seabirds.")
+    letterhead = "Wright-Patterson Air Force Base, Ohio. 4602d Air Intelligence Service Squadron. " * 40
+    r = classify_rules("Project Blue Book File on Tremonton Film", desc, letterhead, "pdf")
+    assert "military_encounter" not in r.tags.get("topic", [])
+    for desc in ("A military platform operating in the region observed an orb.",
+                 "Two military pilots reported a fast-moving object.",
+                 "United States Navy Unidentified Anomalous Phenomena footage."):
+        assert "military_encounter" in classify_rules("Report", desc, None, "video").tags["topic"], desc
+
+
+def test_contract_paperwork_is_administrative():
+    assert classify_rules("DOW-UAP-D110, AAWSAP Statement of Objectives, July 2008", None, None, "pdf").kind == "administrative"
+    assert classify_rules("DOW-UAP-D112, AAWSAP Contract Modification P00001", None, None, "pdf").kind == "administrative"
+    assert classify_rules("USPER Statement", "A witness narrative.", None, "pdf").kind == "witness_statement"

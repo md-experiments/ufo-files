@@ -32,7 +32,7 @@
   <div>
     <div class="eyebrow">Release</div>
     <div class="num">{{ '%02d' % r.number if r.number else '—' }}</div>
-    <div class="secondary">{{ r.date | d('%B %-d, %Y') }}</div>
+    <div class="secondary">{{ r.date | d('%-d %B %Y') }}</div>
     <p class="small muted" style="margin-top:8px">{{ r.total }} records{% if r.pages %} · {{ r.pages | n }} pages{% endif %}<br>
       {% for m in MEDIA_ORDER if r.counts.get(m) %}{{ r.counts[m] }} {{ MEDIA_LABELS[m] | lower }}{{ ', ' if not loop.last }}{% endfor %}</p>
     <a class="small" href="{{ url('/documents', release=r.id) }}">Browse this release →</a>

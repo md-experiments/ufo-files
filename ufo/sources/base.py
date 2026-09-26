@@ -44,4 +44,4 @@ class Source(ABC):
 
     def release_label(self, number: int | None, release_date: date) -> str:
         prefix = f"Release {number:02d}" if number else "Release"
-        return f"{prefix} · {release_date:%b %d, %Y}".replace(" 0", " ")
+        return f"{prefix} · {release_date:%-d %b %Y}"
