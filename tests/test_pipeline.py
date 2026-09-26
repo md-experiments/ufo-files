@@ -304,6 +304,10 @@ def test_analysis_stage_and_patterns_pages(fake):
         years = {y["year"]: y["count"] for y in r["timeline"]["years"]}
         assert years.get(1947, 0) > 0
         assert r["map"] and "similar" in r
+        # explained vs unresolved, redaction and close encounters are summarised too
+        assert r["outcomes"]["overview"]["classified"] == 15
+        assert r["redaction"]["overview"]["records"] == 15
+        assert {k["key"] for k in r["encounters"]["kinds"]} == {"ce1", "ce2", "ce3"}
 
     from ufo.web.app import app
 
@@ -312,7 +316,13 @@ def test_analysis_stage_and_patterns_pages(fake):
                      "/patterns/evidence?place=US-NM", "/api/patterns", "/releases", "/", "/documents/1"]:
             resp = client.get(path)
             assert resp.status_code == 200, (path, resp.text[-800:])
-        assert "Patterns in the UFO files" in client.get("/patterns").text
+        page = client.get("/patterns").text
+        assert "Patterns in the UFO files" in page
+        for heading in ("Explained or unresolved", "Close encounters", "What the release withheld"):
+            assert heading in page
+        for kind in ("ce1", "ce2", "ce3"):
+            assert client.get(f"/patterns/encounters/{kind}").status_code == 200
+        assert client.get("/patterns/encounters/ce9").status_code == 404
         assert client.get("/patterns/evidence").status_code == 400
         cmp = client.get("/patterns/compare?a=1&b=2")
         assert cmp.status_code == 200, cmp.text[-800:]

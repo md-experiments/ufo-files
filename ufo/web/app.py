@@ -414,6 +414,15 @@ def patterns_type(request: Request, type_id: int):
         return render(request, "type.html", t=t)
 
 
+@app.get("/patterns/encounters/{kind}", response_class=HTMLResponse)
+def patterns_encounters(request: Request, kind: str):
+    with session_scope() as db:
+        e = P.encounter_kind(db, kind)
+        if not e:
+            raise HTTPException(404, "close-encounter kind not found")
+        return render(request, "encounters.html", e=e)
+
+
 @app.get("/patterns/compare", response_class=HTMLResponse)
 def patterns_compare(request: Request, a: int, b: int):
     with session_scope() as db:

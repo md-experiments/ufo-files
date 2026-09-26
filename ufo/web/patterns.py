@@ -107,6 +107,7 @@ def patterns_context(db: Session) -> dict:
             charts.case_map(points, types, map_titles, narrow=True)),
         "links": links,
         "rare": rare,
+        **profiles_context(db, r, fd["decades"]),
     }
 
 
@@ -444,3 +445,98 @@ def _link_views(db: Session, links: list[dict]) -> list[dict]:
                     "ea": {"page": xa.page_no, "excerpt": event_excerpt(xa.text, xa.spans, shared, width=360)} if xa else None,
                     "eb": {"page": xb.page_no, "excerpt": event_excerpt(xb.text, xb.spans, shared, width=360)} if xb else None})
     return out
+
+
+# ---------------------------------------------------------------------------
+# Explained vs unresolved, redaction, close encounters
+# ---------------------------------------------------------------------------
+
+OUTCOME_GROUPS = {"unresolved": "Unresolved", "explained": "Explained", "not_assessed": "No assessment given"}
+OUTCOME_CLS = {"unresolved": "s-1", "explained": "s-2", "not_assessed": "s-none"}
+OUTCOME_FACETS = ("decade", "agency", "region", "kind", "shape", "sensor", "witness", "domain")
+TIER_LABELS = {"heavy": "Heavily marked text", "marked_light": "Some markers in the text",
+               "flag_only": "Flagged by the publisher, no markers", "none": "No redaction found"}
+TIER_CLS = {"heavy": "s-2", "marked_light": "s-4", "flag_only": "s-1", "none": "s-none"}
+REDACTION_FACETS = ("agency", "decade", "kind", "media", "topic", "shape", "sensor", "witness", "region")
+EXEMPTION_CLS = {"b1": "s-2", "b3": "s-4", "b6": "s-1", "b7": "s-3", "block": "s-dark"}
+
+
+def _split_cards(by: list[dict], groups: dict[str, str], cls: dict[str, str], facets, limit: int = 8) -> list[dict]:
+    """One card per facet: a 100% bar per value showing how its records split."""
+    cards = []
+    for block in sorted(by, key=lambda b: facets.index(b["facet"]) if b["facet"] in facets else 99):
+        if block["facet"] not in facets:
+            continue
+        rows = []
+        for row in block["rows"][:limit]:
+            segs = [{"label": groups[g], "n": row["counts"].get(g, 0), "cls": cls[g]} for g in groups]
+            rows.append({"label": row["label"], "total": row["total"], "link": row.get("link"),
+                         "bar": charts.stacked_bar(segs, row["total"])})
+        cards.append({"facet": block["facet"], "label": block["label"], "rows": rows})
+    return cards
+
+
+def profiles_context(db: Session, r: dict, all_decades: list[str]) -> dict:
+    """View-models for the outcome, redaction and close-encounter sections."""
+    out: dict = {"outcomes": None, "redaction": None, "encounters": None}
+    o = r.get("outcomes")
+    if o:
+        out["outcomes"] = {
+            **o,
+            "cards": _split_cards(o["by"], OUTCOME_GROUPS, OUTCOME_CLS, OUTCOME_FACETS),
+            "legend": [(OUTCOME_GROUPS[g], OUTCOME_CLS[g]) for g in OUTCOME_GROUPS],
+        }
+    red = r.get("redaction")
+    if red:
+        agencies = []
+        for a in red["exemptions_by_agency"][:6]:
+            segs = [{"label": c["label"], "n": c["count"], "cls": EXEMPTION_CLS.get(c["key"], "s-other")} for c in a["codes"]]
+            agencies.append({"agency": a["agency"], "total": a["total"], "bar": charts.stacked_bar(segs, a["total"])})
+        out["redaction"] = {
+            **red,
+            "cards": _split_cards(red["by"], TIER_LABELS, TIER_CLS, REDACTION_FACETS),
+            "legend": [(TIER_LABELS[g], TIER_CLS[g]) for g in TIER_LABELS],
+            "agencies": agencies,
+            "code_legend": [(c["label"], EXEMPTION_CLS.get(c["key"], "s-other")) for c in red["codes"]],
+        }
+    enc = r.get("encounters")
+    if enc:
+        ex_ids = {i for k in enc["kinds"] for i in k["examples"]}
+        accs = _accounts(db, ex_ids)
+        titles = doc_titles(db, {a.document_id for a in accs.values()} | {t["id"] for k in enc["kinds"] for t in k["top_records"]})
+        kinds = []
+        for k in enc["kinds"]:
+            examples = []
+            for aid in k["examples"][:2]:
+                a = accs.get(aid)
+                if a and a.document_id in titles:
+                    examples.append({"doc": titles[a.document_id], "page": a.page_no,
+                                     "excerpt": event_excerpt(a.text, a.spans, width=340)})
+            kinds.append({
+                **k,
+                "spark": charts.decade_spark({d["decade"]: d["count"] for d in k["decades"]}, all_decades),
+                "place_labels": [(place_label(p["key"]), p["count"]) for p in k["places"]],
+                "examples": examples,
+                "top_records": [{**titles[t["id"]], "n": t["n"]} for t in k["top_records"] if t["id"] in titles],
+            })
+        out["encounters"] = {**enc, "kinds": kinds}
+    return out
+
+
+def encounter_kind(db: Session, key: str) -> dict | None:
+    """Every account of one Hynek kind, grouped by record."""
+    r = load_results(db)
+    k = next((k for k in (r.get("encounters") or {}).get("kinds", []) if k["key"] == key), None)
+    if not k:
+        return None
+    accs = _accounts(db, k["accounts"])
+    titles = doc_titles(db, {a.document_id for a in accs.values()})
+    by_doc: dict[int, list] = defaultdict(list)
+    for aid in k["accounts"]:
+        a = accs.get(aid)
+        if a:
+            by_doc[a.document_id].append({"page": a.page_no, "chips": ev_chips(a.tags),
+                                          "excerpt": event_excerpt(a.text, a.spans)})
+    records = sorted(({"doc": titles[d], "accounts": v} for d, v in by_doc.items() if d in titles),
+                     key=lambda x: ((x["doc"]["year"] or 9999), x["doc"]["title"]))
+    return {"kind": k, "records": records, "place_labels": [(place_label(p["key"]), p["count"]) for p in k["places"]]}

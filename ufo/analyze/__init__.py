@@ -25,7 +25,7 @@ from datetime import date
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from ..db import Account, AnalysisResult, Document, Mention, Observation, has_classification, session_scope, utcnow
+from ..db import Account, AnalysisResult, Document, Mention, Observation, Tag, has_classification, session_scope, utcnow
 from .extract import extract_all
 from .features import BY_KEY, GROUPS, OBSERVABLES
 from .links import series_key
@@ -34,7 +34,7 @@ from .places import STATES, place_label
 log = logging.getLogger(__name__)
 
 MAP_MAX = 3000  # accounts drawn on the map of sighting accounts
-ANALYSIS_VERSION = 3  # bump when stored results change shape; triggers a rebuild on startup
+ANALYSIS_VERSION = 4  # bump when stored results change shape; triggers a rebuild on startup
 MIN_PAIR_COUNT = 4  # co-occurrence pairs seen fewer times are noise
 
 
@@ -122,6 +122,7 @@ def compute(db: Session) -> dict:
         "places": place_summary(unit_places, unit_year),
     }
     results.update(connections(db, docs, unit_year))
+    results.update(profiles(db, docs, unit_features, unit_places, unit_year))
     results["version"] = ANALYSIS_VERSION
     results["overview"] = {
         "sighting_units": len(all_units),
@@ -406,3 +407,42 @@ def connections(db: Session, docs, unit_year) -> dict:
     links = kept[:60]
     return {"clusters": types, "map": points, "links": links, "similar": similar, "tag_weights": w,
             "accounts": len(accs)}
+
+
+def profiles(db: Session, docs, unit_features, unit_places, unit_year) -> dict:
+    """Explained vs unresolved cases, redaction, and close encounters
+    (see ``outcomes``, ``redaction`` and ``encounters``)."""
+    from .encounters import encounter_summary
+    from .outcomes import outcome_summary
+    from .redaction import redaction_summary
+
+    tags: dict[int, set[str]] = defaultdict(set)
+    for doc_id, facet, value in db.execute(select(Tag.document_id, Tag.facet, Tag.value)):
+        if doc_id in docs:
+            tags[doc_id].add(f"{facet}:{value}")
+    markers: dict[int, Counter] = defaultdict(Counter)
+    for doc_id, value in db.execute(select(Mention.document_id, Mention.value).where(Mention.kind == "redaction")):
+        if doc_id in docs:
+            markers[doc_id][value] += 1
+    rows = db.execute(select(Account.id, Account.document_id, Account.page_no, Account.tags, Account.text)
+                      .order_by(Account.id)).all()
+    rows = [r for r in rows if r.document_id in docs]
+    # every detail a record reports: page observables plus its accounts' event tags
+    items: dict[int, set[str]] = defaultdict(set)
+    for (doc_id, _), feats in unit_features.items():
+        items[doc_id] |= feats
+    for r in rows:
+        items[r.document_id] |= set(r.tags or [])
+    records = [{"id": d.id, "record_id": d.record_id, "title": d.title, "agency": d.agency, "media": d.media_type,
+                "year": d.incident_year, "assessment": d.assessment, "redacted": bool(d.redacted),
+                "pages": d.page_count or 0, "tags": tags[d.id], "items": items[d.id], "markers": markers[d.id]}
+               for d in docs.values()]
+    accounts = [{"id": r.id, "doc": r.document_id, "page": r.page_no, "tags": list(r.tags or []), "text": r.text or "",
+                 "year": unit_year((r.document_id, r.page_no)), "places": sorted(unit_places.get((r.document_id, r.page_no), ()))}
+                for r in rows]
+    doc_info = {i: {"agency": d.agency, "title": d.title} for i, d in docs.items()}
+    return {
+        "outcomes": outcome_summary(records),
+        "redaction": redaction_summary(records),
+        "encounters": encounter_summary(accounts, doc_info),
+    }

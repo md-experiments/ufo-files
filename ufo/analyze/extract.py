@@ -12,6 +12,7 @@ from .events import candidates_for, keep
 from .llm_tags import refine, tagger_id
 from .features import find_observables, is_sighting_text
 from .places import find_places, location_places
+from .redaction import find_redactions
 
 # research papers and contracts: their pages are analysed only when they read
 # like sighting accounts, and their own dates/places are not sighting dates
@@ -33,6 +34,10 @@ def extract_document(db: Session, doc: Document) -> tuple[int, int]:
     db.execute(delete(Mention).where(Mention.document_id == doc.id))
     db.execute(delete(Account).where(Account.document_id == doc.id))
     max_date = doc.release.release_date if doc.release else date.today()
+    # redaction markers are counted on every page, sighting report or not
+    for p in doc.pages:
+        for code in find_redactions(p.text or ""):
+            db.add(Mention(document_id=doc.id, page_no=p.page_no, kind="redaction", value=code))
     sighting_units = n_obs = 0
     for page_no, text in units(doc):
         # the publisher's own description is always about the sighting

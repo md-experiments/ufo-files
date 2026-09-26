@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}{{ e.kind.name }} · UFO Files{% endblock %}
+{% block content %}
+<p class="small"><a href="/patterns#encounters">← Close encounters</a></p>
+<div class="eyebrow">Close encounters</div>
+<h1>{{ e.kind.name }}</h1>
+<p class="secondary">{{ e.kind.description | capitalize }}. {{ e.kind.size }} account{{ 's' if e.kind.size != 1 }} in {{ e.kind.record_count }} record{{ 's' if e.kind.record_count != 1 }}{% if e.kind.years %}, {{ e.kind.years[0] }}{% if e.kind.years[1] != e.kind.years[0] %}–{{ e.kind.years[1] }}{% endif %}{% endif %}{% if e.kind.agencies %}, from {% for a in e.kind.agencies %}{{ a.agency }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}. Accounts are matched on what they say happened: a distance under about 150 metres, landing or ground contact, physical effects, or occupants. Read each one before drawing conclusions.</p>
+{% if e.kind.distinctive %}<div class="chips"><span class="muted small">more often than other accounts:</span>{% for d in e.kind.distinctive %}<span class="chip strong" title="{{ d.count }} of these accounts, {{ d.lift }}× the rate elsewhere">{{ d.label }} <span class="muted">{{ d.lift }}×</span></span>{% endfor %}</div>{% endif %}
+{% if e.place_labels %}<div class="chips" style="margin-top:6px"><span class="muted small">places mentioned:</span>{% for l, n in e.place_labels %}<span class="chip">{{ l }} <span class="muted">{{ n }}</span></span>{% endfor %}</div>{% endif %}
+
+{% if not e.records %}<div class="empty">No accounts of this kind have been found yet.</div>{% endif %}
+{% for rec in e.records %}
+<article class="card evidence-record">
+  <h3><a href="/documents/{{ rec.doc.id }}">{{ rec.doc.title }}</a></h3>
+  <div class="muted small">{{ rec.doc.record_id }}{% if rec.doc.agency %} · {{ rec.doc.agency }}{% endif %}{% if rec.doc.year %} · incident {{ rec.doc.year }}{% endif %} · {{ rec.accounts | length }} account{{ 's' if rec.accounts | length != 1 }}</div>
+  <ul class="quotes">
+    {% for a in rec.accounts[:6] %}
+    <li><blockquote class="ev-quote">{{ a.excerpt }}</blockquote>
+      <div class="chips"><a class="small" href="/documents/{{ rec.doc.id }}{% if a.page %}#p{{ a.page }}{% endif %}">{{ 'Page ' ~ a.page if a.page else "Publisher's description" }}</a>
+      {% for c in a.chips %}<span class="chip">{{ c.label }}</span>{% endfor %}</div></li>
+    {% endfor %}
+    {% if rec.accounts | length > 6 %}<li class="muted small">and {{ rec.accounts | length - 6 }} more in this record</li>{% endif %}
+  </ul>
+</article>
+{% endfor %}
+{% endblock %}

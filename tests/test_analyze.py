@@ -94,3 +94,151 @@ def test_account_matching_needs_shared_behaviour():
     assert (1, 2) not in record_similarity(accs, w, {1: "s", 2: "s"}, min_score=0.1)
     types = sighting_types(accs, w, min_accounts=3, min_records=3)
     assert any(set(t["signature"]) >= {"sphere", "hover"} or set(t["signature"]) >= {"glow", "hover"} for t in types)
+
+
+def test_redaction_markers():
+    from ufo.analyze.redaction import find_redactions
+
+    # exemption codes stamped where text was removed, in full or short form
+    assert find_redactions("Pilot (b)(6) reported (b)(1) contact; see (b)(7)(C).") == ["b6", "b1", "b7"]
+    assert find_redactions("b6 b7C b6").count("b6") == 2  # several margin stamps
+    assert find_redactions("form b6 only") == []  # a lone stamp could be a form field
+    assert find_redactions("(b)(3) 10 USC 424 b6") == ["b3", "b6"]  # a full code vouches for the short one
+    # legal citations in contracts are not redactions
+    assert find_redactions("as required by paragraph (b)(1) of this clause and section 316(b)(1)") == []
+    assert find_redactions("excluded from the requirements of paragraph (b) (1) of this clause") == []
+    # blacked-out blocks and bracketed notes
+    assert find_redactions("Name: ████████ [redacted] XXXXXXXX") == ["block", "block", "block"]
+    assert find_redactions("") == []
+
+
+def test_redaction_summary_tiers_and_threads():
+    from collections import Counter
+
+    from ufo.analyze.redaction import redaction_summary
+
+    def rec(i, agency, markers, pages=4, redacted=False, tags=(), items=(), year=2022):
+        return {"id": i, "record_id": f"R{i}", "title": f"Record {i}", "agency": agency, "media": "pdf",
+                "year": year, "redacted": redacted, "pages": pages, "tags": set(tags), "items": set(items),
+                "markers": Counter(markers)}
+
+    recs = [rec(i, "Department of War", {"b1": 20, "b6": 5}, redacted=True, tags={"topic:military", "kind:mission_report"},
+                items={"infrared"}) for i in range(10)]
+    recs += [rec(10 + i, "FBI", {"b7": 1}, tags={"topic:civilian", "kind:investigation_file"}, items={"disc"}, year=1952)
+             for i in range(10)]
+    recs += [rec(20 + i, "NASA", {}, tags={"topic:space"}, items={"orb"}, year=1969) for i in range(10)]
+    s = redaction_summary(recs)
+    assert s["overview"] == {"records": 30, "flagged": 10, "with_text": 30, "marked": 20, "heavy": 10,
+                             "flagged_without_markers": 0, "marked_without_flag": 10, "markers": 260}
+    assert [c["key"] for c in s["codes"]] == ["b1", "b6", "b7"]
+    agency = next(b for b in s["by"] if b["facet"] == "agency")
+    tiers = {r["value"]: r["counts"] for r in agency["rows"]}
+    assert tiers["Department of War"]["heavy"] == 10 and tiers["FBI"]["marked_light"] == 10 and tiers["NASA"]["none"] == 10
+    assert s["exemptions_by_agency"][0]["agency"] == "Department of War"
+    assert s["exemptions_by_agency"][0]["codes"][0]["key"] == "b1"
+    heavy = s["threads"]["heavy"]
+    assert heavy["n"] == 10
+    assert {r["key"] for r in heavy["facets"]} >= {"kind:mission_report", "topic:military"}
+    assert heavy["details"][0]["key"] == "infrared"
+    assert s["top"][0]["density"] == 6.25 and s["top"][0]["codes"][0]["key"] == "b1"
+
+
+def test_outcome_summary_split_and_profiles():
+    from collections import Counter
+
+    from ufo.analyze.outcomes import outcome_group, outcome_summary
+
+    assert outcome_group("resolved_balloon") == "explained" and outcome_group("hoax") == "explained"
+    assert outcome_group("unresolved") == "unresolved" and outcome_group(None) is None
+
+    def rec(i, assessment, items, agency="FBI", year=1952, tags=()):
+        return {"id": i, "record_id": f"R{i}", "title": f"Record {i}", "agency": agency, "media": "pdf", "year": year,
+                "assessment": assessment, "redacted": False, "pages": 2, "tags": set(tags), "items": set(items),
+                "markers": Counter()}
+
+    recs = [rec(i, "unresolved", {"disc", "hover", "silent"}, tags={"shape:disc"}) for i in range(12)]
+    recs += [rec(20 + i, "resolved_balloon", {"drift", "metallic"}, agency="Department of War", year=1966,
+                 tags={"shape:orb"}) for i in range(3)]
+    recs += [rec(30 + i, "not_assessed", {"drift"}, agency="NASA", year=1969) for i in range(6)]
+    recs.append(rec(99, None, {"disc"}))  # unclassified: left out
+    s = outcome_summary(recs)
+    assert s["overview"]["unresolved"] == 12 and s["overview"]["explained"] == 3 and s["overview"]["not_assessed"] == 6
+    assert s["overview"]["classified"] == 21
+    assert s["explanations"] == [{"key": "resolved_balloon", "label": "Explained: balloon", "count": 3}]
+    agency = next(b for b in s["by"] if b["facet"] == "agency")
+    row = next(r for r in agency["rows"] if r["value"] == "FBI")
+    assert row["counts"] == {"unresolved": 12, "explained": 0, "not_assessed": 0} and row["link"] is None
+    shape = next(b for b in s["by"] if b["facet"] == "shape")
+    assert shape["rows"][0]["link"] == "shape:disc"
+    unresolved = s["profiles"]["unresolved"]
+    assert {r["key"] for r in unresolved["distinctive"]} == {"disc", "hover", "silent"}
+    assert unresolved["distinctive"][0]["others"] == 0
+    # three explained records are too few to compare: they are listed instead
+    assert s["profiles"]["explained"]["distinctive"] == [] and s["profiles"]["explained"]["common"] == []
+    assert len(s["explained_cases"]) == 3 and s["explained_cases"][0]["assessment"] == "Explained: balloon"
+
+
+def test_close_encounter_kinds():
+    from ufo.analyze.encounters import encounter_kinds, has_occupants, is_close
+
+    # first kind: within about 150 m, or landed / on the ground / overhead
+    assert is_close("The object hovered about 50 feet from the car.")
+    assert is_close("It came within ten feet of the helicopter.")
+    assert is_close("The disc landed in a field beside the road.")
+    assert is_close("A bright light passed directly overhead.")
+    assert not is_close("The object was seen at 23,000 feet above the aircraft.")  # not "000 feet above"
+    assert not is_close("It stayed about 3,000 feet away throughout.")
+    assert not is_close("The object never came within 500 feet of the plane.")
+    assert not is_close("Three objects at high altitude moved east.")
+    # third kind: occupants of the object, not of a car
+    assert has_occupants("Two small beings emerged from the craft and walked toward the witness.")
+    assert has_occupants("He claims to have observed occupants of saucers described as of human form.")
+    assert has_occupants("Little men were seen walking away from the object.")
+    assert not has_occupants("Another car stopped and its occupants said they saw it too.")
+    assert not has_occupants("The occupants of another planet may be curious about us.")
+    assert not has_occupants("Congress heard testimony on the search for extraterrestrial intelligence.")
+    # kinds from text and tags together
+    assert encounter_kinds("A disc landed in the field.", ["disc"]) == {"ce1"}
+    assert encounter_kinds("The object descended near the barn.", ["descend", "em_effects"]) == {"ce1", "ce2"}
+    assert encounter_kinds("Two humanoids stood beside the object.", ["disc"]) == {"ce3"}
+    assert encounter_kinds("Lights moved across the sky.", ["flashing"]) == set()
+
+
+def test_encounter_summary_lists_small_kinds():
+    from ufo.analyze.encounters import encounter_summary
+
+    docs = {1: {"agency": "FBI", "title": "A"}, 2: {"agency": "Department of War", "title": "B"},
+            3: {"agency": "NASA", "title": "C"}}
+    close = "The silver disc landed in a field about 50 feet from the witness and hummed."
+    far = "A bright light crossed the sky at great speed."
+    accounts = []
+    for i in range(12):
+        accounts.append({"id": i, "doc": 1 + i % 3, "page": 1, "tags": ["disc", "metallic", "hum", "descend"],
+                         "text": close, "year": 1950 + i, "places": ["US-NM"]})
+    for i in range(12, 40):
+        accounts.append({"id": i, "doc": 1 + i % 3, "page": 2, "tags": ["bright", "high_speed"], "text": far,
+                         "year": 1960, "places": []})
+    accounts.append({"id": 40, "doc": 2, "page": 3, "tags": ["disc", "silent"],
+                     "text": "Two small beings emerged from the craft.", "year": 1964, "places": ["US-CA"]})
+    s = encounter_summary(accounts, docs)
+    ce1, ce2, ce3 = s["kinds"]
+    assert ce1["size"] == 12 and ce1["record_count"] == 3 and ce1["enough"]
+    assert ce1["years"] == [1950, 1961] and ce1["decades"][0] == {"decade": "1950s", "count": 10}
+    assert {r["key"] for r in ce1["distinctive"]} == {"disc", "metallic", "hum"}  # "descend" defines the kind
+    assert ce1["places"] == [{"key": "US-NM", "count": 12}]
+    assert len(ce1["examples"]) == 3  # one per record, different agencies first
+    assert ce2["size"] == 0 and ce2["examples"] == []
+    assert ce3["size"] == 1 and not ce3["enough"] and ce3["distinctive"] == [] and ce3["examples"] == [40]
+    assert s["any"] == 13 and s["overlap"] == {"ce1+ce2": 0, "ce1+ce3": 0, "ce2+ce3": 0}
+
+
+def test_lift_rows_compare_against_the_rest():
+    from ufo.analyze.compare import lift_rows, split_by
+
+    inside = [{"a", "b"}] * 10
+    others = [{"a"}] * 20
+    rows = lift_rows(inside, others, str)
+    assert [(r["key"], r["count"], r["others"], r["lift"]) for r in rows] == [("b", 10, 0, 20.0)]  # "a" is no more common
+    assert lift_rows(inside[:3], others, str) == []  # too few to compare
+    rows = split_by([("x", "FBI"), ("x", "FBI"), ("y", "FBI"), ("y", "NASA"), ("x", None)], ["x", "y"])
+    assert rows[0] == {"value": "FBI", "total": 3, "counts": {"x": 2, "y": 1}, "shares": {"x": 0.667, "y": 0.333}}

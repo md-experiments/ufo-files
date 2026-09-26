@@ -151,6 +151,36 @@ seconds for the current ~450 records and 10,000 pages):
     best-matching accounts. They need at least three shared details, or a copy
     of the same report. Files from the same published series don't count.
 
+* **Explained vs unresolved** (`outcomes.py`). Every classified record
+  carries the archive's own verdict: *unresolved*, *explained* (balloon,
+  aircraft, birds, astronomical, camera artifact, hoax) or *no assessment
+  given*. The summary splits the three by decade, agency, region, document
+  type, shape, sensor, witness and domain, and lists the details the
+  unresolved records report more often than the others (share divided by
+  share, "lift"). Explained records get the same treatment once at least 8
+  of them have sighting details; until then they are listed one by one.
+* **Redaction** (`redaction.py`). Two measures: the publisher's redaction
+  flag (mostly the modern Department of War reports and videos), and markers
+  left in the text of every page: FOIA exemption codes ("(b)(1)" national
+  security, "(b)(3)" statute, "(b)(6)" personal privacy, "(b)(7)(C)"
+  law-enforcement privacy; the short "b6" / "b7C" stamps FBI files use) and
+  blacked-out blocks. Legal citations in contracts ("paragraph (b)(1) of this
+  clause") are not counted. A record with at least 2 markers per page is
+  *heavily redacted*. The summary shows the rate by agency, decade, kind,
+  topic, shape, sensor, witness and region, which exemptions each agency
+  cites, the common threads of the heavily redacted records (lift over the
+  rest), and the most heavily redacted files.
+* **Close encounters** (`encounters.py`), in Hynek's three kinds. Every
+  sighting account is tested from its text and tags: *first kind* when the
+  object came within about 150 m (a distance under 500 feet, landed, on the
+  ground, directly overhead, treetop height), *second kind* when it left
+  physical effects (any effect tag), *third kind* when occupants or beings
+  were seen with it (not the occupants of a car). Each kind gets its
+  decades, agencies, places, the details it reports more often than the
+  other accounts, examples and a page listing every account
+  (`/patterns/encounters/{ce1,ce2,ce3}`). A kind with fewer than 8 accounts
+  or 3 records is listed rather than compared.
+
 Run it by hand with `python -m ufo analyze`.
 
 ## Web app
@@ -173,7 +203,14 @@ Run it by hand with `python -m ufo analyze`.
   * a U.S. tile map and a world breakdown;
   * sighting types on a map of sighting accounts, highlighted on hover, each
     with its own page listing every account (`/patterns/types/{id}`);
-  * connections across agencies and decades.
+  * connections across agencies and decades;
+  * explained or unresolved: how the archive's verdicts split by period,
+    agency, region, type, shape, sensor and witness, and what the unresolved
+    cases report more often;
+  * close encounters of the first, second and third kind, with what each
+    kind has in common and every account (`/patterns/encounters/{kind}`);
+  * what the release withheld: redaction by agency, period and subject, the
+    exemptions cited, and the common threads of heavily redacted files.
 
   Every mark links to `/patterns/evidence?feature=&year=&place=`, which lists
   the matching sighting pages with quotes.
