@@ -6,7 +6,7 @@ from datetime import date
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, selectinload
 
-from ..db import Account, Document, Mention, Observation
+from ..db import Account, Document, Mention, Observation, has_classification
 from .dates import find_dates
 from .events import candidates_for, keep
 from .llm_tags import refine, tagger_id
@@ -62,7 +62,7 @@ def extract_document(db: Session, doc: Document) -> tuple[int, int]:
 def extract_all(db: Session, progress=None) -> dict:
     progress = progress or (lambda *a: None)
     docs = db.scalars(
-        select(Document).where(Document.status == "classified")
+        select(Document).where(has_classification())
         .options(selectinload(Document.pages), selectinload(Document.release))
     ).all()
     # candidate sighting accounts first: an LLM (when configured) re-reads them,

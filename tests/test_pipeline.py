@@ -275,6 +275,7 @@ def test_admin_endpoints_need_token(fake, monkeypatch):
     from ufo import config
     from ufo.web.app import app
 
+    monkeypatch.setattr(pipeline, "run_analysis_only", lambda trigger: None)
     with TestClient(app) as client:
         assert client.post("/api/analysis/run").status_code == 401
         monkeypatch.setenv("ADMIN_TOKEN", "t0k")
@@ -305,3 +306,17 @@ def test_llm_classification_runs_in_parallel(fake, monkeypatch):
     assert pipeline.run_pipeline()
     assert len(calls) == 12
     assert time.time() - t < 12 * 0.3  # four at a time, not one after another
+
+
+def test_records_waiting_for_reclassification_stay_visible(fake):
+    from sqlalchemy import select
+
+    from ufo.db import Document, has_classification, session_scope
+
+    FakeSource.records = [rec("V1", date(2026, 5, 8), media="video", url=None, desc="An orb over the sea.")]
+    pipeline.run_pipeline()
+    with session_scope() as db:
+        db.scalar(select(Document)).status = "extracted"  # queued for re-classification, run interrupted
+    with session_scope() as db:
+        assert db.scalar(select(Document).where(has_classification())) is not None
+    assert pipeline.llm_upgrade_pending()  # the scheduler picks it up

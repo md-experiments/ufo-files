@@ -7,7 +7,7 @@ from sqlalchemy import and_, case, distinct, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..classify.taxonomy import FACET_LABELS, FACETS, label
-from ..db import Document, Page, PipelineRun, Release, Tag
+from ..db import Document, Page, PipelineRun, Release, Tag, has_classification
 
 MEDIA_ORDER = ["pdf", "video", "image", "audio"]
 MEDIA_LABELS = {"pdf": "Documents", "video": "Videos", "image": "Images", "audio": "Audio", "other": "Other"}
@@ -21,7 +21,7 @@ def overview(db: Session) -> dict:
             func.coalesce(func.sum(Document.page_count), 0),
             func.coalesce(func.sum(Document.ocr_page_count), 0),
             func.count(distinct(Document.agency)),
-            func.sum(case((Document.status == "classified", 1), else_=0)),
+            func.sum(case((has_classification(), 1), else_=0)),
             func.max(Document.incident_year),
             func.min(Document.incident_year),
         )
@@ -101,7 +101,7 @@ def top_locations(db: Session, limit: int = 12) -> list[dict]:
 
 
 def highlights(db: Session, release_id: int | None = None, limit: int = 8) -> list[Document]:
-    q = select(Document).where(Document.status == "classified")
+    q = select(Document).where(has_classification())
     if release_id:
         q = q.where(Document.release_id == release_id)
     q = q.order_by(

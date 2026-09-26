@@ -444,7 +444,11 @@ def _needs_llm_classification(db) -> list[int]:
 
 
 def llm_upgrade_pending() -> bool:
+    """Records wait for (re-)classification: newly queued ones, or ones an
+    interrupted run left extracted but not yet classified."""
     with session_scope() as db:
+        if db.scalar(select(func.count(Document.id)).where(Document.status.in_(("extracted", "downloaded")))):
+            return True
         return bool(_needs_llm_classification(db))
 
 

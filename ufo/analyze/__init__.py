@@ -25,7 +25,7 @@ from datetime import date
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from ..db import Account, AnalysisResult, Document, Mention, Observation, session_scope, utcnow
+from ..db import Account, AnalysisResult, Document, Mention, Observation, has_classification, session_scope, utcnow
 from .extract import extract_all
 from .features import BY_KEY, GROUPS, OBSERVABLES
 from .links import series_key
@@ -85,7 +85,7 @@ def analysis_outdated(db: Session) -> bool:
 # ---------------------------------------------------------------------------
 
 def compute(db: Session) -> dict:
-    docs = {d.id: d for d in db.scalars(select(Document).where(Document.status == "classified"))}
+    docs = {d.id: d for d in db.scalars(select(Document).where(has_classification()))}
     obs = db.execute(select(Observation.document_id, Observation.page_no, Observation.feature, Observation.snippet)).all()
     dates = db.execute(select(Mention.document_id, Mention.page_no, Mention.value, Mention.precision)
                        .where(Mention.kind == "date")).all()

@@ -16,9 +16,11 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    and_,
     create_engine,
     event,
     inspect,
+    or_,
     text,
 )
 from sqlalchemy.engine import Engine
@@ -115,6 +117,13 @@ class Document(Base):
         back_populates="document", cascade="all, delete-orphan", order_by="Page.page_no"
     )
     tags: Mapped[list["Tag"]] = relationship(back_populates="document", cascade="all, delete-orphan")
+
+
+def has_classification():
+    """Records to show and analyse: classified, or classified before and now
+    waiting to be re-classified (e.g. after an LLM key was added)."""
+    return or_(Document.status == "classified",
+               and_(Document.status.in_(("extracted", "downloaded")), Document.classifier.is_not(None)))
 
 
 class Page(Base):
