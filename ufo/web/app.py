@@ -89,8 +89,10 @@ def _scheduler_loop() -> None:
             log.exception("could not read the last pipeline run")
             last = None
         due = last is None or utcnow() - last >= interval
-        if not due and first:
-            try:  # an LLM key was just added: re-classify now rather than tomorrow
+        if not due and (last is None or utcnow() - last >= timedelta(hours=1)):
+            # an LLM key was just added: re-classify now rather than tomorrow
+            # (checked hourly, so a run that was skipped or failed is retried)
+            try:
                 from ..pipeline import llm_upgrade_pending
 
                 due = llm_upgrade_pending()

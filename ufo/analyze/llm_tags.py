@@ -145,6 +145,8 @@ def refine(accounts: list[Account], progress=None) -> dict:
     for a, k in zip(accounts, keys):
         if k not in cached:
             todo.setdefault(k, a.text)
+    if not todo:
+        progress("LLM tags: all %d passages already tagged by %s (cached)", len(uniq), model)
     if todo:
         items = list(todo.items())
         batches = [items[i:i + BATCH] for i in range(0, len(items), BATCH)]
