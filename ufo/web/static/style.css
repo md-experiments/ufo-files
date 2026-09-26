@@ -476,3 +476,10 @@ mark.ev.hit { background: var(--mark); border-bottom: 2px solid var(--hot); padd
 .cluster h3 a { color: var(--text-primary); }
 .cluster .quotes { margin-top: 10px; }
 .cluster .ev-quote { max-height: 9em; }
+
+/* admin run buttons on the pipeline page */
+.admin-form { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 8px; }
+.admin-form input[type=password] { flex: 1 1 220px; min-width: 0; font: inherit; font-size: .9rem; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-1); color: var(--text-primary); }
+.admin-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.admin-form button[disabled] { opacity: .6; cursor: wait; }
+#admin-status:empty { display: none; }

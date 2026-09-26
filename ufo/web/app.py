@@ -368,10 +368,14 @@ def api_patterns():
 @app.get("/pipeline", response_class=HTMLResponse)
 def pipeline_page(request: Request):
     s = get_settings()
+    from ..db import AnalysisResult
+
     with session_scope() as db:
+        computed = db.get(AnalysisResult, "overview")
         return render(
             request, "pipeline.html", runs=Q.runs(db), statuses=Q.status_counts(db), stats=Q.overview(db),
-            settings=s,
+            settings=s, admin_enabled=bool(s.admin_token),
+            analysis_at=computed.computed_at if computed else None,
             classifier=(f'{ {"anthropic": "Claude", "openai": "OpenAI"}[s.llm_provider] } ({s.llm_model})'
                         if s.llm_available else "keyword rules"),
         )
