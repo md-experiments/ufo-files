@@ -208,7 +208,8 @@ don't trigger extra runs. Runs are guarded so they never overlap.
 3. Optional variables:
    * `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`: enables LLM summaries,
      classification and event tagging, using whichever key is set.
-   * `ADMIN_TOKEN`: enables `POST /api/pipeline/run`.
+   * `ADMIN_TOKEN`: enables `POST /api/pipeline/run` (full run) and
+     `POST /api/analysis/run` (patterns only).
    * `PIPELINE_INTERVAL_HOURS` (default `24`).
 4. Deploy. On first boot the app loads the bundled snapshot
    (`data/seed/ufo-seed.json.gz`) into an empty database so the site has data
@@ -241,7 +242,7 @@ Keep one replica. The scheduler runs inside the web process.
 | `SCHEDULER_ENABLED` | `true` | run the pipeline from the web process |
 | `RUN_PIPELINE_ON_STARTUP` | `true` | run once at boot |
 | `PIPELINE_INTERVAL_HOURS` | `24` | how often to check for new releases |
-| `ADMIN_TOKEN` | — | bearer token for `POST /api/pipeline/run` |
+| `ADMIN_TOKEN` | — | bearer token for `POST /api/pipeline/run` and `POST /api/analysis/run` |
 
 ## Running locally
 

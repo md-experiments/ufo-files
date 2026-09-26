@@ -433,11 +433,38 @@ def api_document(doc_id: int):
         return _doc_json(doc, full=True)
 
 
-@app.post("/api/pipeline/run")
-def api_run(authorization: str | None = Header(default=None)):
+def _require_admin(authorization: str | None) -> None:
     token = get_settings().admin_token
     if not token or authorization != f"Bearer {token}":
         raise HTTPException(401, "set ADMIN_TOKEN and send 'Authorization: Bearer <token>'")
+
+
+@app.post("/api/analysis/run")
+def api_analyze(authorization: str | None = Header(default=None)):
+    """Recompute the patterns (and LLM tagging of new passages) without
+    checking sources. Refused while a pipeline run is in progress."""
+    _require_admin(authorization)
+    from ..analyze import run_analysis
+    from ..pipeline import _local_lock
+
+    if not _local_lock.acquire(blocking=False):
+        raise HTTPException(409, "a pipeline run is in progress; it ends with the analysis")
+
+    def work():
+        try:
+            run_analysis()
+        except Exception:
+            log.exception("analysis run failed")
+        finally:
+            _local_lock.release()
+
+    threading.Thread(target=work, name="analysis", daemon=True).start()
+    return JSONResponse({"started": True}, status_code=202)
+
+
+@app.post("/api/pipeline/run")
+def api_run(authorization: str | None = Header(default=None)):
+    _require_admin(authorization)
     from ..pipeline import run_pipeline
 
     threading.Thread(target=run_pipeline, kwargs={"trigger": "api"}, daemon=True).start()

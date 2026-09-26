@@ -267,3 +267,17 @@ def test_scheduler_runs_once_per_interval(fake, monkeypatch):
     webapp._scheduler_loop()
     assert calls == ["startup"]
     webapp._stop.clear()
+
+
+def test_admin_endpoints_need_token(fake, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from ufo import config
+    from ufo.web.app import app
+
+    with TestClient(app) as client:
+        assert client.post("/api/analysis/run").status_code == 401
+        monkeypatch.setenv("ADMIN_TOKEN", "t0k")
+        config.reset_settings()
+        assert client.post("/api/analysis/run", headers={"Authorization": "Bearer nope"}).status_code == 401
+        assert client.post("/api/analysis/run", headers={"Authorization": "Bearer t0k"}).status_code == 202
