@@ -36,10 +36,12 @@ def tag_label(tag: str) -> str:
     return label(facet, value)
 
 
-def patterns_context(db: Session) -> dict:
+def patterns_context(db: Session, derived: bool = True) -> dict:
+    """``derived``: count verdicts and redaction markers read from the text
+    alongside the stated ones (the default), or show stated ones only."""
     r = load_results(db)
     if not r:
-        return {"ready": False}
+        return {"ready": False, "derived": derived}
     tl = r["timeline"]
     fd = r["feature_decades"]
     features = sorted(r["features"], key=lambda f: -f["records"])
@@ -107,6 +109,8 @@ def patterns_context(db: Session) -> dict:
             charts.case_map(points, types, map_titles, narrow=True)),
         "links": links,
         "rare": rare,
+        "derived": derived,
+        **profiles_context(db, r, fd["decades"], derived),
     }
 
 
@@ -171,7 +175,8 @@ def document_patterns(db: Session, doc: Document) -> dict:
              for t in r.get("clusters", []) if "signature" in t and own_ids & set(t["accounts"])]
     accounts = [{"page": a.page_no, "chips": ev_chips(a.tags), "excerpt": event_excerpt(a.text, a.spans, width=700)}
                 for a in own[:40]]
-    return {"details": details, "similar": similar, "types": types, "accounts": accounts, "n_accounts": len(own)}
+    return {"details": details, "similar": similar, "types": types, "accounts": accounts, "n_accounts": len(own),
+            "verdicts": document_verdicts(db, doc)}
 
 
 def releases_visuals(db: Session) -> dict:
@@ -444,3 +449,169 @@ def _link_views(db: Session, links: list[dict]) -> list[dict]:
                     "ea": {"page": xa.page_no, "excerpt": event_excerpt(xa.text, xa.spans, shared, width=360)} if xa else None,
                     "eb": {"page": xb.page_no, "excerpt": event_excerpt(xb.text, xb.spans, shared, width=360)} if xb else None})
     return out
+
+
+# ---------------------------------------------------------------------------
+# Explained vs unresolved, redaction, close encounters
+# ---------------------------------------------------------------------------
+
+OUTCOME_GROUPS = {"unresolved": "Unresolved", "explained": "Explained", "not_assessed": "No assessment given"}
+OUTCOME_CLS = {"unresolved": "s-1", "explained": "s-2", "not_assessed": "s-none"}
+OUTCOME_FACETS = ("decade", "agency", "region", "kind", "shape", "sensor", "witness", "domain")
+TIER_LABELS = {"heavy": "Heavily marked text", "marked_light": "Some markers in the text",
+               "flag_only": "Flagged by the publisher, no markers", "none": "No redaction found"}
+TIER_CLS = {"heavy": "s-2", "marked_light": "s-4", "flag_only": "s-1", "none": "s-none"}
+REDACTION_FACETS = ("agency", "decade", "kind", "media", "topic", "shape", "sensor", "witness", "region")
+EXEMPTION_CLS = {"b1": "s-2", "b3": "s-4", "b6": "s-1", "b7": "s-3", "block": "s-dark"}
+
+
+def _split_cards(by: list[dict], groups: dict[str, str], cls: dict[str, str], facets, limit: int = 8) -> list[dict]:
+    """One card per facet: a 100% bar per value showing how its records split."""
+    cards = []
+    for block in sorted(by, key=lambda b: facets.index(b["facet"]) if b["facet"] in facets else 99):
+        if block["facet"] not in facets:
+            continue
+        rows = []
+        for row in block["rows"][:limit]:
+            segs = [{"label": groups[g], "n": row["counts"].get(g, 0), "cls": cls[g]} for g in groups]
+            rows.append({"label": row["label"], "total": row["total"], "link": row.get("link"),
+                         "bar": charts.stacked_bar(segs, row["total"])})
+        cards.append({"facet": block["facet"], "label": block["label"], "rows": rows})
+    return cards
+
+
+FLAG_LABELS = {"flagged": "Flagged by the publisher", "unflagged": "Not flagged"}
+FLAG_CLS = {"flagged": "s-1", "unflagged": "s-none"}
+
+
+def profiles_context(db: Session, r: dict, all_decades: list[str], derived: bool = True) -> dict:
+    """View-models for the outcome, redaction and close-encounter sections.
+    Without ``derived``, verdicts and redaction markers read from the text
+    are left out and only the publisher's are shown."""
+    out: dict = {"outcomes": None, "redaction": None, "encounters": None}
+    o = r.get("outcomes")
+    if o and "all" in o:  # older results have no derived layer
+        o = o["all" if derived else "stated"]
+        ex_ids = {i for g in ("explained", "unresolved") for i in o["accounts"].get(g, {}).get("accounts", [])[:3]}
+        accs = _accounts(db, ex_ids)
+        titles = doc_titles(db, {a.document_id for a in accs.values()})
+        acc_views = {}
+        for g in ("explained", "unresolved"):
+            block = o["accounts"].get(g) or {}
+            examples = [{"doc": titles[a.document_id], "page": a.page_no, "excerpt": event_excerpt(a.text, a.spans, width=300)}
+                        for aid in block.get("accounts", [])[:2] for a in [accs.get(aid)] if a and a.document_id in titles]
+            acc_views[g] = {**block, "examples": examples}
+        out["outcomes"] = {
+            **o,
+            "cards": _split_cards(o["by"], OUTCOME_GROUPS, OUTCOME_CLS, OUTCOME_FACETS),
+            "legend": [(OUTCOME_GROUPS[g], OUTCOME_CLS[g]) for g in OUTCOME_GROUPS],
+            "account_views": acc_views,
+            "group_labels": OUTCOME_GROUPS,
+        }
+    red = r.get("redaction")
+    if red:
+        agencies = []
+        for a in red["exemptions_by_agency"][:6]:
+            segs = [{"label": c["label"], "n": c["count"], "cls": EXEMPTION_CLS.get(c["key"], "s-other")} for c in a["codes"]]
+            agencies.append({"agency": a["agency"], "total": a["total"], "bar": charts.stacked_bar(segs, a["total"])})
+        if derived:
+            cards = _split_cards(red["by"], TIER_LABELS, TIER_CLS, REDACTION_FACETS)
+            legend = [(TIER_LABELS[g], TIER_CLS[g]) for g in TIER_LABELS]
+        else:  # the publisher's flag only
+            by = []
+            for block in red["by"]:
+                rows = []
+                for row in block["rows"]:
+                    n_flag = round(row["flag_share"] * row["total"])
+                    rows.append({**row, "counts": {"flagged": n_flag, "unflagged": row["total"] - n_flag}})
+                rows.sort(key=lambda x: (-x["counts"]["flagged"] / x["total"], -x["total"]))
+                by.append({**block, "rows": rows})
+            cards = _split_cards(by, FLAG_LABELS, FLAG_CLS, REDACTION_FACETS)
+            legend = [(FLAG_LABELS[g], FLAG_CLS[g]) for g in FLAG_LABELS]
+        out["redaction"] = {
+            **red,
+            "cards": cards,
+            "legend": legend,
+            "agencies": agencies,
+            "code_legend": [(c["label"], EXEMPTION_CLS.get(c["key"], "s-other")) for c in red["codes"]],
+        }
+    enc = r.get("encounters")
+    if enc:
+        ex_ids = {i for k in enc["kinds"] for i in k["examples"]}
+        accs = _accounts(db, ex_ids)
+        titles = doc_titles(db, {a.document_id for a in accs.values()} | {t["id"] for k in enc["kinds"] for t in k["top_records"]})
+        kinds = []
+        for k in enc["kinds"]:
+            examples = []
+            for aid in k["examples"][:2]:
+                a = accs.get(aid)
+                if a and a.document_id in titles:
+                    examples.append({"doc": titles[a.document_id], "page": a.page_no,
+                                     "excerpt": event_excerpt(a.text, a.spans, width=340)})
+            kinds.append({
+                **k,
+                "spark": charts.decade_spark({d["decade"]: d["count"] for d in k["decades"]}, all_decades),
+                "place_labels": [(place_label(p["key"]), p["count"]) for p in k["places"]],
+                "examples": examples,
+                "top_records": [{**titles[t["id"]], "n": t["n"]} for t in k["top_records"] if t["id"] in titles],
+            })
+        out["encounters"] = {**enc, "kinds": kinds}
+    return out
+
+
+def encounter_kind(db: Session, key: str) -> dict | None:
+    """Every account of one Hynek kind, grouped by record."""
+    r = load_results(db)
+    k = next((k for k in (r.get("encounters") or {}).get("kinds", []) if k["key"] == key), None)
+    if not k:
+        return None
+    accs = _accounts(db, k["accounts"])
+    titles = doc_titles(db, {a.document_id for a in accs.values()})
+    by_doc: dict[int, list] = defaultdict(list)
+    for aid in k["accounts"]:
+        a = accs.get(aid)
+        if a:
+            by_doc[a.document_id].append({"page": a.page_no, "chips": ev_chips(a.tags),
+                                          "excerpt": event_excerpt(a.text, a.spans)})
+    records = sorted(({"doc": titles[d], "accounts": v} for d, v in by_doc.items() if d in titles),
+                     key=lambda x: ((x["doc"]["year"] or 9999), x["doc"]["title"]))
+    return {"kind": k, "records": records, "place_labels": [(place_label(p["key"]), p["count"]) for p in k["places"]]}
+
+
+def verdict_group(db: Session, group: str, derived: bool = True) -> dict | None:
+    """Every account that states a verdict of one group, grouped by record,
+    plus the records whose pages state one."""
+    r = load_results(db)
+    o = (r.get("outcomes") or {}).get("all" if derived else "stated")
+    if not o or group not in ("explained", "unresolved"):
+        return None
+    block = o["accounts"].get(group) or {}
+    accs = _accounts(db, block.get("accounts", []))
+    titles = doc_titles(db, {a.document_id for a in accs.values()} | {c["id"] for c in o["derived_cases"]})
+    by_doc: dict[int, list] = defaultdict(list)
+    for aid in block.get("accounts", []):
+        a = accs.get(aid)
+        if a:
+            by_doc[a.document_id].append({"page": a.page_no, "chips": ev_chips(a.tags),
+                                          "excerpt": event_excerpt(a.text, a.spans)})
+    records = sorted(({"doc": titles[d], "accounts": v} for d, v in by_doc.items() if d in titles),
+                     key=lambda x: ((x["doc"]["year"] or 9999), x["doc"]["title"]))
+    cases = [c for c in o["derived_cases"] if c["group"] == group]
+    return {"group": group, "label": OUTCOME_GROUPS[group], "block": block, "records": records, "cases": cases,
+            "derived": derived}
+
+
+def document_verdicts(db: Session, doc: Document) -> list[dict]:
+    """Verdicts this record's pages state, with their sentences."""
+    from ..analyze.verdicts import find_verdicts, verdict_label
+
+    pages = {p for p, in db.execute(select(Mention.page_no).where(Mention.document_id == doc.id, Mention.kind == "verdict"))}
+    if not pages:
+        return []
+    out = []
+    for p in sorted(pages):
+        page = next((x for x in doc.pages if x.page_no == p), None)
+        for v in find_verdicts(page.text if page else ""):
+            out.append({"page": p, "group": v.group, "label": verdict_label(v.category), "strong": v.strong,
+                        "sentence": v.sentence})
+    return out[:12]
