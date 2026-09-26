@@ -13,6 +13,7 @@ from .llm_tags import refine, tagger_id
 from .features import find_observables, is_sighting_text
 from .places import find_places, location_places
 from .redaction import find_redactions
+from .verdicts import find_verdicts
 
 # research papers and contracts: their pages are analysed only when they read
 # like sighting accounts, and their own dates/places are not sighting dates
@@ -47,6 +48,11 @@ def extract_document(db: Session, doc: Document) -> tuple[int, int]:
         for hit in find_observables(text):
             db.add(Observation(document_id=doc.id, page_no=page_no, feature=hit.key, snippet=hit.snippet))
             n_obs += 1
+        if page_no != 0 and doc.document_kind not in NON_SIGHTING_KINDS:
+            # verdicts the file itself states (the publisher's description already sets the assessment)
+            for v in find_verdicts(text):
+                db.add(Mention(document_id=doc.id, page_no=page_no, kind="verdict", value=v.category,
+                               precision="strong" if v.strong else "hedged"))
         if page_no != 0:
             for d, precision in find_dates(text, max_date=max_date):
                 db.add(Mention(document_id=doc.id, page_no=page_no, kind="date", value=d.isoformat(), precision=precision))

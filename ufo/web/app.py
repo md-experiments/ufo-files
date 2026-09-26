@@ -385,9 +385,20 @@ def releases_page(request: Request):
 
 
 @app.get("/patterns", response_class=HTMLResponse)
-def patterns_page(request: Request):
+def patterns_page(request: Request, derived: int = 1):
+    """``derived=0`` shows the publisher's verdicts and redaction flags only,
+    leaving out what the analysis read from the text."""
     with session_scope() as db:
-        return render(request, "patterns.html", p=P.patterns_context(db))
+        return render(request, "patterns.html", p=P.patterns_context(db, derived=bool(derived)))
+
+
+@app.get("/patterns/verdicts/{group}", response_class=HTMLResponse)
+def patterns_verdicts(request: Request, group: str, derived: int = 1):
+    with session_scope() as db:
+        v = P.verdict_group(db, group, derived=bool(derived))
+        if not v:
+            raise HTTPException(404, "verdict group not found")
+        return render(request, "verdicts.html", v=v)
 
 
 @app.get("/patterns/evidence", response_class=HTMLResponse)

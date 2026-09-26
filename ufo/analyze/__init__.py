@@ -34,7 +34,7 @@ from .places import STATES, place_label
 log = logging.getLogger(__name__)
 
 MAP_MAX = 3000  # accounts drawn on the map of sighting accounts
-ANALYSIS_VERSION = 4  # bump when stored results change shape; triggers a rebuild on startup
+ANALYSIS_VERSION = 5  # bump when stored results change shape; triggers a rebuild on startup
 MIN_PAIR_COUNT = 4  # co-occurrence pairs seen fewer times are noise
 
 
@@ -415,6 +415,7 @@ def profiles(db: Session, docs, unit_features, unit_places, unit_year) -> dict:
     from .encounters import encounter_summary
     from .outcomes import outcome_summary
     from .redaction import redaction_summary
+    from .verdicts import find_verdicts, verdict_of
 
     tags: dict[int, set[str]] = defaultdict(set)
     for doc_id, facet, value in db.execute(select(Tag.document_id, Tag.facet, Tag.value)):
@@ -433,16 +434,47 @@ def profiles(db: Session, docs, unit_features, unit_places, unit_year) -> dict:
         items[doc_id] |= feats
     for r in rows:
         items[r.document_id] |= set(r.tags or [])
+    # verdicts the pages state, re-read from the text for their sentences
+    verdict_pages = {(d, p) for d, p in db.execute(select(Mention.document_id, Mention.page_no).where(Mention.kind == "verdict"))
+                     if d in docs}
+    verdicts: dict[int, list[dict]] = defaultdict(list)
+    page_verdicts: dict[tuple[int, int], list] = {}
+    if verdict_pages:
+        from ..db import Page
+
+        for doc_id, page_no, text in db.execute(select(Page.document_id, Page.page_no, Page.text)
+                                                .where(Page.document_id.in_({d for d, _ in verdict_pages}))):
+            if (doc_id, page_no) in verdict_pages:
+                found = find_verdicts(text or "")
+                page_verdicts[(doc_id, page_no)] = found
+                verdicts[doc_id] += [{"group": v.group, "category": v.category, "strong": v.strong, "page": page_no,
+                                      "sentence": v.sentence} for v in found]
     records = [{"id": d.id, "record_id": d.record_id, "title": d.title, "agency": d.agency, "media": d.media_type,
                 "year": d.incident_year, "assessment": d.assessment, "redacted": bool(d.redacted),
-                "pages": d.page_count or 0, "tags": tags[d.id], "items": items[d.id], "markers": markers[d.id]}
+                "pages": d.page_count or 0, "tags": tags[d.id], "items": items[d.id], "markers": markers[d.id],
+                "verdicts": verdicts[d.id]}
                for d in docs.values()]
+
+    def account_verdict(r) -> dict | None:
+        """An account's own verdict, else its page's when the page settles on one group."""
+        v = verdict_of(r.text or "")
+        if v:
+            return {"group": v.group, "category": v.category, "sentence": v.sentence, "source": "account"}
+        on_page = page_verdicts.get((r.document_id, r.page_no)) or []
+        groups = {v.group for v in on_page}
+        if len(groups) == 1:
+            v = max(on_page, key=lambda v: (v.strong, v.start))
+            return {"group": v.group, "category": v.category, "sentence": v.sentence, "source": "page"}
+        return None
+
     accounts = [{"id": r.id, "doc": r.document_id, "page": r.page_no, "tags": list(r.tags or []), "text": r.text or "",
-                 "year": unit_year((r.document_id, r.page_no)), "places": sorted(unit_places.get((r.document_id, r.page_no), ()))}
+                 "year": unit_year((r.document_id, r.page_no)), "places": sorted(unit_places.get((r.document_id, r.page_no), ())),
+                 "verdict": account_verdict(r)}
                 for r in rows]
     doc_info = {i: {"agency": d.agency, "title": d.title} for i, d in docs.items()}
     return {
-        "outcomes": outcome_summary(records),
+        "outcomes": {"all": outcome_summary(records, accounts, use_derived=True),
+                     "stated": outcome_summary(records, accounts, use_derived=False)},
         "redaction": redaction_summary(records),
         "encounters": encounter_summary(accounts, doc_info),
     }

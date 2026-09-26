@@ -161,9 +161,9 @@ def test_outcome_summary_split_and_profiles():
                  tags={"shape:orb"}) for i in range(3)]
     recs += [rec(30 + i, "not_assessed", {"drift"}, agency="NASA", year=1969) for i in range(6)]
     recs.append(rec(99, None, {"disc"}))  # unclassified: left out
-    s = outcome_summary(recs)
+    s = outcome_summary(recs, [])
     assert s["overview"]["unresolved"] == 12 and s["overview"]["explained"] == 3 and s["overview"]["not_assessed"] == 6
-    assert s["overview"]["classified"] == 21
+    assert s["overview"]["classified"] == 21 and s["overview"]["derivable"] == 0
     assert s["explanations"] == [{"key": "resolved_balloon", "label": "Explained: balloon", "count": 3}]
     agency = next(b for b in s["by"] if b["facet"] == "agency")
     row = next(r for r in agency["rows"] if r["value"] == "FBI")
@@ -242,3 +242,72 @@ def test_lift_rows_compare_against_the_rest():
     assert lift_rows(inside[:3], others, str) == []  # too few to compare
     rows = split_by([("x", "FBI"), ("x", "FBI"), ("y", "FBI"), ("y", "NASA"), ("x", None)], ["x", "y"])
     assert rows[0] == {"value": "FBI", "total": 3, "counts": {"x": 2, "y": 1}, "shares": {"x": 0.667, "y": 0.333}}
+
+
+def test_verdicts_in_text():
+    from ufo.analyze.verdicts import find_verdicts, verdict_of
+
+    def groups(text):
+        return [(v.group, v.category) for v in find_verdicts(text)]
+
+    assert groups("The sighting was evaluated as a weather balloon released from Holloman.") == [("explained", "resolved_balloon")]
+    assert groups("It turned out to be Venus low on the horizon.") == [("explained", "resolved_astronomical")]
+    assert groups("CONCLUSION: PROBABLE AIRCRAFT") == [("explained", "resolved_aircraft")]
+    assert groups("The object was a plastic balloon about 40 feet across.") == [("explained", "resolved_balloon")]
+    assert groups("The case remains unresolved. Evaluation: unknown.") == [("unresolved", "unresolved")] * 2
+    assert groups("The object could not be identified by the Air Force.") == [("unresolved", "unresolved")]
+    assert groups("The film was listed as unidentified in the Blue Book files.") == [("unresolved", "unresolved")]
+    # names, questions, negations, speculation and witness impressions are not verdicts
+    assert groups("He reported an unidentified flying object over the base.") == []
+    assert groups("Could it have been a balloon?") == []
+    assert groups("It was not a balloon, and a meteor was ruled out.") == []
+    assert groups("They didn't think the object was a drone.") == []
+    assert groups("The streaks may have been caused by a jet.") == []
+    assert groups("There is a possibility that the incidents were caused by meteors.") == []
+    assert groups("I thought the object\nwas a kite, then I realized no kite flies that high.") == []  # OCR line break
+    assert groups("The object appeared to be a plastic balloon.") == []
+    assert groups("They have what appear to be jet nozzles around the rim.") == []
+    assert groups("Sound: could not be determined.") == []  # a form field
+    # a definite verdict beats a hedged one; the later of equals wins
+    v = verdict_of("It was evaluated as a possible balloon. ATIC later listed the case as unidentified.")
+    assert (v.group, v.strong) == ("unresolved", True)
+    v = verdict_of("First identified as a balloon. Re-evaluated: the object was a meteor.")
+    assert v.category == "resolved_astronomical" and "meteor" in v.sentence
+
+
+def test_derived_verdicts_fill_gaps_and_are_marked():
+    from collections import Counter
+
+    from ufo.analyze.outcomes import derive_record, outcome_summary
+
+    ex = {"group": "explained", "category": "resolved_balloon", "strong": True, "page": 3, "sentence": "Evaluated as a balloon."}
+    un = {"group": "unresolved", "category": "unresolved", "strong": True, "page": 4, "sentence": "Listed as unidentified."}
+    hedged = {"group": "explained", "category": "resolved_aircraft", "strong": False, "page": 1, "sentence": "Probably an aircraft."}
+    assert derive_record([]) is None
+    assert derive_record([ex])["assessment"] == "resolved_balloon"
+    assert derive_record([ex, un]) is None  # an even split settles nothing
+    assert derive_record([un, ex, un])["group"] == "unresolved"
+    assert derive_record([hedged, un])["group"] == "unresolved"  # the definite verdict outweighs the hedge
+    assert derive_record([hedged])["assessment"] == "resolved_aircraft"
+
+    def rec(i, assessment, verdicts=(), items=("disc",)):
+        return {"id": i, "record_id": f"R{i}", "title": f"Record {i}", "agency": "FBI", "media": "pdf", "year": 1952,
+                "assessment": assessment, "redacted": False, "pages": 2, "tags": set(), "items": set(items),
+                "markers": Counter(), "verdicts": list(verdicts)}
+
+    recs = [rec(1, "not_assessed", [ex]), rec(2, "not_assessed", [un]), rec(3, "unresolved", [ex]), rec(4, "not_assessed")]
+    accounts = [{"id": 10, "doc": 1, "tags": ["disc", "hover"], "verdict": {"group": "explained", "category": "resolved_balloon",
+                                                                           "sentence": "", "source": "page"}},
+                {"id": 11, "doc": 4, "tags": ["disc"], "verdict": None}]
+    both = outcome_summary(recs, accounts, use_derived=True)
+    assert both["overview"]["explained"] == 1 and both["overview"]["unresolved"] == 2 and both["overview"]["not_assessed"] == 1
+    assert both["overview"]["derived"] == {"explained": 1, "unresolved": 1}
+    assert both["overview"]["derivable"] == 3 and both["overview"]["disagree"] == 1
+    assert [c["source"] for c in both["explained_cases"]] == ["derived"]
+    used = {c["id"]: (c["used"], c["agrees"]) for c in both["derived_cases"]}
+    assert used == {1: (True, True), 2: (True, True), 3: (False, False)}  # record 3's text contradicts the publisher
+    assert both["accounts"]["explained"]["accounts"] == [10] and both["accounts"]["n"] == 1
+    stated = outcome_summary(recs, accounts, use_derived=False)
+    assert stated["overview"]["explained"] == 0 and stated["overview"]["not_assessed"] == 3
+    assert stated["overview"]["derived"] == {} and stated["overview"]["derivable"] == 3  # still listed, not used
+    assert stated["accounts"]["n"] == 0

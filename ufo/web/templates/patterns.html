@@ -8,7 +8,8 @@
     <p>Every page that reads like a sighting report is scanned for concrete, recurring details: glows and halos, humming or total silence, smells, hovering, right-angle turns, engines stalling, marks left on the ground. Dates and places on those pages show when reports bunched into waves. Sighting accounts are tagged with what was observed and grouped into recurring sighting types; records whose accounts describe the same kind of event are linked across agencies and decades. Everything below updates when new files are released.</p>
   </div>
   <div class="status-line">
-    {% if p.ready %}<span>Computed {{ p.computed_at | ago }} from the extracted text. Patterns are found automatically: open the evidence before drawing conclusions.</span>{% endif %}
+    {% if p.ready %}<span>Computed {{ p.computed_at | ago }} from the extracted text. Patterns are found automatically: open the evidence before drawing conclusions.</span>
+    <span class="toggle small" style="display:block;margin-top:8px">Verdicts and redactions: {% if p.derived %}<strong>stated + derived from the text</strong> · <a href="/patterns?derived=0">stated only</a>{% else %}<a href="/patterns">stated + derived from the text</a> · <strong>stated only</strong>{% endif %}</span>{% endif %}
   </div>
 </section>
 
@@ -24,7 +25,89 @@
 </section>
 
 <nav class="toc small" aria-label="On this page">
-  <a href="#waves">Waves</a><a href="#details">Recurring details</a><a href="#decades">By decade</a><a href="#together">Reported together</a><a href="#rare">Rare details</a><a href="#where">Where</a><a href="#clusters">Sighting types</a><a href="#links">Connections</a>{% if p.outcomes %}<a href="#outcomes">Explained or unresolved</a>{% endif %}{% if p.encounters %}<a href="#encounters">Close encounters</a>{% endif %}{% if p.redaction %}<a href="#redaction">Redaction</a>{% endif %}
+  <a href="#waves">Waves</a><a href="#details">Recurring details</a><a href="#decades">By decade</a><a href="#together">Reported together</a><a href="#rare">Rare details</a><a href="#where">Where</a><a href="#clusters">Sighting types</a><a href="#links">Connections</a>{% if p.outcomes %}
+{% set o = p.outcomes %}
+<section class="section" id="outcomes">
+  <h2>Explained or unresolved</h2>
+  <p class="secondary small">Each classified record carries a verdict: <strong>unresolved</strong> (the object was never identified), <strong>explained</strong> (balloon, aircraft, birds, a star or planet, a camera artifact, a hoax) or <strong>no assessment given</strong>. The <em>stated</em> verdict comes from the publisher's description (and the file text when an LLM classifies). A <em>derived</em> one is read from the pages by keyword rules, the way the close-encounter kinds are: "evaluated as a weather balloon", "turned out to be Venus", "listed as unidentified", "could not be identified".
+  {% if o.overview.use_derived %}Derived verdicts fill in where the publisher gave none: {{ o.overview.derived.explained or 0 }} explained and {{ o.overview.derived.unresolved or 0 }} unresolved records here are derived, and every derived verdict is quoted below.{% else %}Derived verdicts are switched off: stated verdicts only.{% endif %}
+  Of {{ o.overview.classified | n }} records, {{ o.overview.unresolved | n }} are unresolved, {{ o.overview.explained | n }} explained{% if o.explanations %} ({% for x in o.explanations %}{{ x.label | replace('Explained: ', '') | lower }} {{ x.count }}{{ ', ' if not loop.last }}{% endfor %}){% endif %} and {{ o.overview.not_assessed | n }} carry no verdict. Row links browse the records with a stated verdict.</p>
+  <div class="legend">{% for l, cls in o.legend %}<span><i class="{{ cls }}"></i>{{ l }}</span>{% endfor %}</div>
+  <div class="grid cols-2">
+    {% for c in o.cards %}
+    <div class="card split-card">
+      <h3>{{ c.label }}</h3>
+      <div class="stack-rows">
+        {% for r in c.rows %}
+        <div class="stack-row"><span class="stack-name">{% if r.link %}<a href="{{ url('/documents', tag=r.link) }}">{{ r.label }}</a>{% else %}{{ r.label }}{% endif %}</span>{{ r.bar }}<span class="stack-total muted small" {% if r.derived %}title="{{ r.derived }} derived"{% endif %}>{{ r.total }}{% if r.derived %}<sup>d</sup>{% endif %}</span></div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="profile-grid">
+    {% set u = o.profiles.unresolved %}
+    <div class="card">
+      <h3>What unresolved cases report more often <span class="muted small">{{ u.n }} records with details{% if u.derived %}, {{ u.derived }} derived{% endif %}</span></h3>
+      {% if u.distinctive %}
+      <p class="secondary small">Details reported by a larger share of the unresolved records than of the other records with sighting details. "2×" means twice the rate elsewhere. Small counts are shown so you can judge them.</p>
+      <div class="chips">{% for d in u.distinctive %}<span class="chip strong" title="{{ d.count }} unresolved records ({{ (d.share * 100) | round | int }}%) vs {{ d.others }} other records">{{ d.label }} <span class="muted">{{ d.count }} · {{ d.lift }}×</span></span>{% endfor %}</div>
+      {% else %}<p class="muted small">Nothing stands out yet: the unresolved records report the same details as the rest, or there are too few to compare.</p>{% endif %}
+      {% if u.common %}<div class="mini-label">Most reported</div>
+      <div class="chips">{% for d in u.common %}<span class="chip" title="{{ (d.share * 100) | round | int }}% of unresolved records">{{ d.label }} <span class="muted">{{ d.count }}</span></span>{% endfor %}</div>{% endif %}
+      <p class="small" style="margin-top:10px"><a href="{{ url('/documents', tag='assessment:unresolved') }}">Browse the unresolved records →</a></p>
+    </div>
+    {% set x = o.profiles.explained %}
+    <div class="card">
+      <h3>The explained cases <span class="muted small">{{ o.overview.explained }} records{% if x.derived %}, {{ x.derived }} derived{% endif %}</span></h3>
+      {% if x.distinctive %}
+      <p class="secondary small">Details reported by a larger share of the explained records than of the others.</p>
+      <div class="chips">{% for d in x.distinctive %}<span class="chip strong" title="{{ d.count }} explained records vs {{ d.others }} other records">{{ d.label }} <span class="muted">{{ d.count }} · {{ d.lift }}×</span></span>{% endfor %}</div>
+      {% if x.common %}<div class="mini-label">Most reported</div>
+      <div class="chips">{% for d in x.common %}<span class="chip">{{ d.label }} <span class="muted">{{ d.count }}</span></span>{% endfor %}</div>{% endif %}
+      {% elif o.explained_cases %}
+      <p class="secondary small">Too few to compare statistically (that needs {{ o.min_group }} with sighting details), so here they are one by one, with the details found in each.</p>
+      <ul class="case-list">
+        {% for c in o.explained_cases %}
+        <li><a href="/documents/{{ c.id }}">{{ c.title | truncate(80) }}</a>
+          <span class="muted small">{{ c.assessment }}{% if c.source == 'derived' %} <strong>(derived)</strong>{% endif %}{% if c.agency %} · {{ c.agency }}{% endif %}{% if c.year %} · {{ c.year }}{% endif %}{% if c.details %} · {{ c.details | join(', ') | lower }}{% endif %}</span></li>
+        {% endfor %}
+      </ul>
+      {% else %}<p class="muted small">No record in the archive has been given an explanation yet.</p>{% endif %}
+    </div>
+  </div>
+  {% if o.overview.use_derived %}
+  <div class="profile-grid">
+    <div class="card">
+      <h3>Verdicts read from the text <span class="muted small">{{ o.overview.derivable }} records</span></h3>
+      {% if o.derived_cases %}
+      <p class="secondary small">Every verdict the rules found on a page, with its sentence. {{ o.overview.derived.explained or 0 }} + {{ o.overview.derived.unresolved or 0 }} fill a gap where the publisher gave no assessment; {{ o.overview.disagree }} disagree with the stated one and are shown but not used. Blue Book record cards state their conclusion as a ticked box, which OCR does not keep, so most historical verdicts stay out of reach.</p>
+      <ul class="case-list">
+        {% for c in o.derived_cases[:10] %}
+        <li><a href="/documents/{{ c.id }}#p{{ c.page }}">{{ c.title | truncate(70) }}</a>
+          <span class="muted small">{{ c.assessment }} · page {{ c.page }} · {% if c.used %}used{% elif c.agrees %}agrees with the stated {{ c.stated_label | lower }}{% else %}<strong>disagrees</strong> with the stated {{ c.stated_label | lower }}{% endif %}</span>
+          <blockquote>{{ c.sentence | truncate(200) }}</blockquote></li>
+        {% endfor %}
+      </ul>
+      <p class="small"><a class="more" href="/patterns/verdicts/explained">All explained →</a> · <a class="more" href="/patterns/verdicts/unresolved">All unresolved →</a></p>
+      {% else %}<p class="muted small">No page states a verdict the rules recognise.</p>{% endif %}
+    </div>
+    <div class="card">
+      <h3>Accounts that state their own verdict <span class="muted small">{{ o.accounts.n }} of {{ o.accounts.of | n }}</span></h3>
+      <p class="secondary small">Sighting accounts whose paragraph, or whose page, says what the object was or that it was never identified. Compared with all other accounts on what they report, once there are {{ o.min_group }} of them.</p>
+      {% for g in ('unresolved', 'explained') %}{% set b = o.account_views[g] %}
+      <div class="mini-label"><a href="/patterns/verdicts/{{ g }}">{{ o.group_labels[g] }}</a> · {{ b.n }} account{{ 's' if b.n != 1 }} in {{ b.records }} record{{ 's' if b.records != 1 }}</div>
+      {% if b.distinctive %}<div class="chips">{% for d in b.distinctive %}<span class="chip strong" title="{{ d.count }} of these accounts vs {{ d.others }} others">{{ d.label }} <span class="muted">{{ d.lift }}×</span></span>{% endfor %}</div>
+      {% elif b.n and b.n < o.min_group %}<p class="muted small">Too few to compare.</p>{% endif %}
+      {% for ex in b.examples[:1] %}<blockquote class="ev-quote">{{ ex.excerpt }}</blockquote><a class="small" href="/documents/{{ ex.doc.id }}{% if ex.page %}#p{{ ex.page }}{% endif %}">{{ ex.doc.title | truncate(60) }}{% if ex.page %}, page {{ ex.page }}{% endif %}</a>{% endfor %}
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if p.encounters %}<a href="#encounters">Close encounters</a>{% endif %}{% if p.redaction %}<a href="#redaction">Redaction</a>{% endif %}
 </nav>
 
 <section class="section card" id="waves">
@@ -226,6 +309,9 @@
 <section class="section" id="encounters">
   <h2>Close encounters <small>Hynek's three kinds</small></h2>
   <p class="secondary small">J. Allen Hynek's scale classes a report by how close it came. Each of the {{ e.accounts | n }} sighting accounts is tested against the three kinds from what it says: a distance under about 150 metres, landing or ground contact, effects on engines, instruments, the ground, animals or witnesses, and occupants or beings. {{ e.any }} accounts qualify for at least one kind{% if e.overlap['ce1+ce2'] or e.overlap['ce1+ce3'] or e.overlap['ce2+ce3'] %} ({{ e.overlap['ce1+ce2'] }} are both first and second kind, {{ e.overlap['ce1+ce3'] }} first and third, {{ e.overlap['ce2+ce3'] }} second and third){% endif %}. Each card shows which details that kind reports more often than the other accounts do.</p>
+  {% if not p.derived %}
+  <p class="muted small">All three kinds are derived from the text; no record states a Hynek class. Switch derived verdicts back on to see them.</p>
+  {% else %}
   <div class="encounter-grid">
     {% for k in e.kinds %}
     <article class="card">
@@ -256,6 +342,7 @@
     </article>
     {% endfor %}
   </div>
+  {% endif %}
 </section>
 {% endif %}
 
@@ -263,7 +350,8 @@
 {% set rd = p.redaction %}
 <section class="section" id="redaction">
   <h2>What the release withheld <small>redaction by agency, period and subject</small></h2>
-  <p class="secondary small">Two measures, because they see different parts of the archive. The publisher's own <strong>redaction flag</strong> marks {{ rd.overview.flagged | n }} of {{ rd.overview.records | n }} records, mostly the modern Department of War reports and videos. <strong>Markers in the text</strong>, the FOIA exemption codes stamped where text was removed and the blacked-out blocks that OCR reads as block characters, appear in {{ rd.overview.marked | n }} of the {{ rd.overview.with_text | n }} records with text, {{ rd.overview.heavy | n }} of them heavily (at least 2 markers per page). {{ rd.overview.flagged_without_markers | n }} flagged records show no marker in their text (the redaction is a blank box the OCR cannot see), and {{ rd.overview.marked_without_flag | n }} carry markers without being flagged: the historical files. A blank scanned page could be a redaction or an empty page, so blank pages are not counted.</p>
+  <p class="secondary small">Two measures, because they see different parts of the archive. The publisher's own <strong>redaction flag</strong> marks {{ rd.overview.flagged | n }} of {{ rd.overview.records | n }} records, mostly the modern Department of War reports and videos. <strong>Markers in the text</strong>, the FOIA exemption codes stamped where text was removed and the blacked-out blocks that OCR reads as block characters, appear in {{ rd.overview.marked | n }} of the {{ rd.overview.with_text | n }} records with text, {{ rd.overview.heavy | n }} of them heavily (at least 2 markers per page). {{ rd.overview.flagged_without_markers | n }} flagged records show no marker in their text (the redaction is a blank box the OCR cannot see), and {{ rd.overview.marked_without_flag | n }} carry markers without being flagged: the historical files. A blank scanned page could be a redaction or an empty page, so blank pages are not counted.{% if not p.derived %} <strong>Derived markers are switched off: the tables below use the publisher's flag alone.</strong>{% endif %}</p>
+  {% if p.derived %}
   <div class="grid cols-2">
     <div class="card">
       <h2>Why text was withheld <small>exemptions cited</small></h2>
@@ -287,6 +375,7 @@
       </div>
     </div>
   </div>
+  {% endif %}
   <div class="legend" style="margin-top:16px">{% for l, cls in rd.legend %}<span><i class="{{ cls }}"></i>{{ l }}</span>{% endfor %}</div>
   <div class="grid cols-2">
     {% for c in rd.cards %}
@@ -301,6 +390,7 @@
     {% endfor %}
   </div>
   <div class="profile-grid">
+    {% if p.derived %}
     <div class="card">
       <h3>Common threads in heavily redacted files <span class="muted small">{{ rd.threads.heavy.n }} of {{ rd.threads.heavy.of }} records with text</span></h3>
       {% if rd.threads.heavy.facets or rd.threads.heavy.details %}
@@ -314,6 +404,14 @@
       <div class="chips">{% for d in rd.threads.flagged.facets %}<span class="chip" title="{{ d.count }} flagged records vs {{ d.others }} unflagged">{{ d.label }} <span class="muted">{{ d.lift }}×</span></span>{% endfor %}{% for d in rd.threads.flagged.details %}<span class="chip" title="{{ d.count }} flagged records vs {{ d.others }} unflagged">{{ d.label }} <span class="muted">{{ d.lift }}×</span></span>{% endfor %}</div>
       {% endif %}
     </div>
+    {% else %}
+    <div class="card">
+      <h3>Common threads in flagged records <span class="muted small">{{ rd.threads.flagged.n }} of {{ rd.threads.flagged.of }}</span></h3>
+      <p class="secondary small">What the records the publisher flagged are about, compared with the unflagged ones.</p>
+      <div class="chips">{% for d in rd.threads.flagged.facets %}<span class="chip strong" title="{{ d.count }} flagged records vs {{ d.others }} unflagged">{{ d.label }} <span class="muted">{{ d.lift }}×</span></span>{% endfor %}{% for d in rd.threads.flagged.details %}<span class="chip strong">{{ d.label }} <span class="muted">{{ d.lift }}×</span></span>{% endfor %}</div>
+    </div>
+    {% endif %}
+    {% if p.derived %}
     <div class="card">
       <h3>Most heavily redacted records</h3>
       {% if rd.top %}
@@ -325,6 +423,7 @@
       </ul>
       {% else %}<p class="muted small">No record carries 2 or more markers per page.</p>{% endif %}
     </div>
+    {% endif %}
   </div>
 </section>
 {% endif %}

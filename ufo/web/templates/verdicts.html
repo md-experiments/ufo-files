@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}{{ v.label }} in the text · UFO Files{% endblock %}
+{% block content %}
+<p class="small"><a href="/patterns{{ '?derived=0' if not v.derived }}#outcomes">← Explained or unresolved</a></p>
+<div class="eyebrow">Verdicts read from the text</div>
+<h1>{{ v.label }}</h1>
+<p class="secondary">Records whose pages say the object {{ 'was identified' if v.group == 'explained' else 'was never identified' }}, and the sighting accounts that say so themselves. These verdicts are <strong>derived</strong> from the files by keyword rules, not given by the publisher: each one is quoted so it can be checked. {% if not v.derived %}Derived verdicts are switched off on the Patterns page, so this list is empty.{% endif %}</p>
+
+{% if v.cases %}
+<h2>Records <small class="muted">{{ v.cases | length }}</small></h2>
+<ul class="case-list">
+  {% for c in v.cases %}
+  <li><a href="/documents/{{ c.id }}#p{{ c.page }}">{{ c.title | truncate(90) }}</a>
+    <span class="muted small">{{ c.assessment }} · page {{ c.page }}{% if c.agency %} · {{ c.agency }}{% endif %}{% if c.year %} · {{ c.year }}{% endif %} · {% if c.used %}used: the publisher gave no assessment{% elif c.agrees %}agrees with the stated assessment{% else %}<strong>disagrees</strong> with the stated assessment ({{ c.stated_label }}){% endif %}</span>
+    <blockquote>{{ c.sentence }}</blockquote></li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+{% if v.records %}
+<h2>Sighting accounts <small class="muted">{{ v.block.n }} in {{ v.block.records }} records</small></h2>
+{% if v.block.distinctive %}<div class="chips"><span class="muted small">more often than other accounts:</span>{% for d in v.block.distinctive %}<span class="chip strong" title="{{ d.count }} of these accounts vs {{ d.others }} others">{{ d.label }} <span class="muted">{{ d.lift }}×</span></span>{% endfor %}</div>{% endif %}
+{% for rec in v.records %}
+<article class="card evidence-record">
+  <h3><a href="/documents/{{ rec.doc.id }}">{{ rec.doc.title }}</a></h3>
+  <div class="muted small">{{ rec.doc.record_id }}{% if rec.doc.agency %} · {{ rec.doc.agency }}{% endif %}{% if rec.doc.year %} · incident {{ rec.doc.year }}{% endif %} · {{ rec.accounts | length }} account{{ 's' if rec.accounts | length != 1 }}</div>
+  <ul class="quotes">
+    {% for a in rec.accounts[:6] %}
+    <li><blockquote class="ev-quote">{{ a.excerpt }}</blockquote>
+      <div class="chips"><a class="small" href="/documents/{{ rec.doc.id }}{% if a.page %}#p{{ a.page }}{% endif %}">{{ 'Page ' ~ a.page if a.page else "Publisher's description" }}</a>
+      {% for c in a.chips %}<span class="chip">{{ c.label }}</span>{% endfor %}</div></li>
+    {% endfor %}
+  </ul>
+</article>
+{% endfor %}
+{% endif %}
+{% if not v.cases and not v.records %}<div class="empty">No {{ v.label | lower }} verdict has been read from the text.</div>{% endif %}
+{% endblock %}

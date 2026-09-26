@@ -52,6 +52,20 @@
     </div>
     {% endif %}
 
+    {% if patterns.verdicts %}
+    <div class="section">
+      <h2>Verdict in the text <small class="muted">derived from the pages, not the publisher's assessment</small></h2>
+      <ul class="quotes">
+        {% for v in patterns.verdicts %}
+        <li><blockquote>{{ v.sentence }}</blockquote>
+          <span class="chip strong">{{ v.label }}</span>{% if not v.strong %} <span class="muted small">hedged</span>{% endif %}
+          <a class="small" href="#p{{ v.page }}">Page {{ v.page }}</a></li>
+        {% endfor %}
+      </ul>
+      {% if doc.assessment and doc.assessment != 'not_assessed' %}<p class="muted small">The stated assessment is <strong>{{ label('assessment', doc.assessment) }}</strong>{% if patterns.verdicts | map(attribute='group') | list | unique | list | length == 1 and (patterns.verdicts[0].group == 'unresolved') != (doc.assessment == 'unresolved') %}; the text disagrees{% endif %}.</p>{% endif %}
+    </div>
+    {% endif %}
+
     {% if patterns.accounts %}
     <div class="section">
       <h2>Sighting accounts <small class="muted">{{ patterns.n_accounts }} paragraph{{ 's' if patterns.n_accounts != 1 }} tagged with what was observed</small></h2>

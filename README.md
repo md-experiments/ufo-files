@@ -151,14 +151,28 @@ seconds for the current ~450 records and 10,000 pages):
     best-matching accounts. They need at least three shared details, or a copy
     of the same report. Files from the same published series don't count.
 
-* **Explained vs unresolved** (`outcomes.py`). Every classified record
-  carries the archive's own verdict: *unresolved*, *explained* (balloon,
-  aircraft, birds, astronomical, camera artifact, hoax) or *no assessment
-  given*. The summary splits the three by decade, agency, region, document
+* **Explained vs unresolved** (`outcomes.py`, `verdicts.py`). Every
+  classified record carries a *stated* verdict from the publisher's
+  description (and the file text when an LLM classifies): *unresolved*,
+  *explained* (balloon, aircraft, birds, astronomical, camera artifact,
+  hoax) or *no assessment given*. A *derived* verdict is also read from
+  every sighting page by keyword rules, the way the close-encounter kinds
+  are: "evaluated as a weather balloon", "turned out to be Venus", "listed
+  as unidentified", "could not be identified". Questions, negations,
+  speculation ("may have been caused by") and witness impressions
+  ("appeared to be a balloon", "they thought it was a plane") do not count.
+  By default a record with no stated verdict takes its derived one and the
+  two are counted together; `/patterns?derived=0` shows stated verdicts
+  only. Every derived verdict is quoted with its sentence, and one that
+  contradicts the stated verdict is shown but not used. Sighting accounts
+  that state their own verdict (or whose page settles on one) are compared
+  too. The summary splits the groups by decade, agency, region, document
   type, shape, sensor, witness and domain, and lists the details the
   unresolved records report more often than the others (share divided by
   share, "lift"). Explained records get the same treatment once at least 8
   of them have sighting details; until then they are listed one by one.
+  Blue Book record cards state their conclusion as a ticked box, which OCR
+  does not keep, so most historical verdicts are out of reach of the rules.
 * **Redaction** (`redaction.py`). Two measures: the publisher's redaction
   flag (mostly the modern Department of War reports and videos), and markers
   left in the text of every page: FOIA exemption codes ("(b)(1)" national
@@ -204,13 +218,19 @@ Run it by hand with `python -m ufo analyze`.
   * sighting types on a map of sighting accounts, highlighted on hover, each
     with its own page listing every account (`/patterns/types/{id}`);
   * connections across agencies and decades;
-  * explained or unresolved: how the archive's verdicts split by period,
-    agency, region, type, shape, sensor and witness, and what the unresolved
-    cases report more often;
+  * explained or unresolved: how the verdicts split by period, agency,
+    region, type, shape, sensor and witness, what the unresolved cases
+    report more often, and every verdict read from the text with its
+    sentence (`/patterns/verdicts/{explained,unresolved}`);
   * close encounters of the first, second and third kind, with what each
     kind has in common and every account (`/patterns/encounters/{kind}`);
   * what the release withheld: redaction by agency, period and subject, the
     exemptions cited, and the common threads of heavily redacted files.
+
+  A page-wide switch (`?derived=0`) leaves out everything read from the
+  text (derived verdicts, redaction markers, close-encounter kinds) and
+  shows the publisher's verdicts and redaction flags alone. Derived values
+  are marked wherever they are counted.
 
   Every mark links to `/patterns/evidence?feature=&year=&place=`, which lists
   the matching sighting pages with quotes.
@@ -227,7 +247,8 @@ Run it by hand with `python -m ufo analyze`.
 * **Browse** (`/documents`): full-text search across titles, summaries and
   OCR'd text, with filters by release, agency, media type and any label.
 * **Document** (`/documents/{id}`): metadata, summary, labels, related records,
-  the details found in the record (with quotes), its tagged sighting accounts,
+  the details found in the record (with quotes), any verdict its pages state
+  (marked as derived, with the sentence), its tagged sighting accounts,
   similar records elsewhere and
   the sighting types it contains, a link to the original, and the extracted text page by
   page, with OCR pages and their confidence marked. When the rules-based
