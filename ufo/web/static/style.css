@@ -483,3 +483,13 @@ mark.ev.hit { background: var(--mark); border-bottom: 2px solid var(--hot); padd
 .admin-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
 .admin-form button[disabled] { opacity: .6; cursor: wait; }
 #admin-status:empty { display: none; }
+
+/* error pages */
+.error-page { max-width: 560px; margin: 48px auto; text-align: center; }
+.error-page h1 { margin: 6px 0 12px; }
+.error-page code { font-family: var(--mono); font-size: .85em; overflow-wrap: anywhere; }
+.error-page .btn { display: inline-block; margin: 4px; text-decoration: none; }
+/* the rest of a description folded under its summary */
+.page-text.inline { background: transparent; margin-top: 8px; }
+.page-text.inline summary { padding: 4px 0; font-size: .85rem; color: var(--accent-ink); }
+.page-text.inline pre { border-top: 0; padding: 4px 0 0; color: var(--text-primary); }

@@ -18,9 +18,9 @@ class FakeSource(Source):
         return list(self.records)
 
 
-def rec(rid, release, media="pdf", url=None, desc="A pilot observed an orb over the ocean.", **kw):
+def rec(rid, release, media="pdf", url=None, desc="A pilot observed an orb over the ocean.", agency="Department of War", **kw):
     return RecordInfo(record_id=rid, title=f"{rid}, Report", media_type=media, release_date=release,
-                      agency="Department of War", description=desc,
+                      agency=agency, description=desc,
                       file_url=url or f"https://example.gov/{rid}.pdf", **kw)
 
 
@@ -119,6 +119,86 @@ def test_web_pages_render(fake):
         assert client.get("/api/documents?q=orb").json()["total"] >= 1
         assert client.get("/documents/999").status_code == 404
         assert client.post("/api/pipeline/run").status_code == 401
+        assert "2026" in client.get("/documents/1").text and "8 May 2026" in client.get("/releases").text
+
+
+def test_friendly_error_pages_and_crawler_files(fake):
+    from fastapi.testclient import TestClient
+
+    files, tmp = fake
+    FakeSource.records = [rec("V1", date(2026, 5, 8), media="video", url=None)]
+    pipeline.run_pipeline()
+
+    from ufo.web.app import app
+
+    with TestClient(app) as client:
+        # HTML routes get an HTML page with a way back; /api keeps JSON
+        for path in ["/documents/999", "/documents/abc", "/about", "/robots.txt.bak"]:
+            r = client.get(path)
+            assert r.status_code == 404 and "text/html" in r.headers["content-type"], path
+            assert "Page not found" in r.text and 'href="/documents"' in r.text
+        r = client.get("/patterns/evidence?year=abc")
+        assert r.status_code == 400 and "text/html" in r.headers["content-type"]
+        assert client.get("/api/documents/999").json() == {"detail": "document not found"}
+        assert client.get("/api/documents/abc").status_code == 422
+        assert "application/json" in client.get("/api/documents?page=0").headers["content-type"]
+        # bad page numbers mean the first page; past the end goes to the last page
+        for page in ("0", "-1", "abc"):
+            r = client.get(f"/documents?page={page}")
+            assert r.status_code == 200 and "No records match" not in r.text
+        r = client.get("/documents?page=16&sort=release", follow_redirects=False)
+        assert r.status_code == 302 and r.headers["location"] == "/documents?sort=release"
+        robots = client.get("/robots.txt")
+        assert robots.status_code == 200 and "Sitemap: http://testserver/sitemap.xml" in robots.text
+        sitemap = client.get("/sitemap.xml")
+        assert sitemap.status_code == 200 and "application/xml" in sitemap.headers["content-type"]
+        assert "<loc>http://testserver/documents/1</loc>" in sitemap.text
+        # API timestamps say they are UTC
+        assert client.get("/api/stats").json()["last_run"].endswith("Z")
+
+
+def test_unavailable_records_are_counted_and_explained(fake):
+    from fastapi.testclient import TestClient
+
+    files, tmp = fake
+    files["https://example.gov/D1.pdf"] = make_pdf(tmp / "d1.pdf", ["An orb."])
+    FakeSource.records = [rec("D1", date(2026, 5, 8)), rec("D2", date(2026, 5, 8), agency="FBI")]  # D2 blocked
+    pipeline.run_pipeline()
+
+    from ufo.web.app import app
+
+    with TestClient(app) as client:
+        stats = client.get("/api/stats").json()
+        assert {a["value"]: a["n"] for a in stats["facets"]["agency"]} == {"Department of War": 1, "FBI": 1}
+        releases = client.get("/releases").text
+        assert "FBI" in releases and "Fbi" not in releases
+        page = client.get("/documents/2").text
+        assert "blocking downloads" in page and "HTTP 403" not in page and "not yet classified" in page
+        pipeline_page = client.get("/pipeline").text
+        assert 'id="problems"' in pipeline_page and "HTTP 403" in pipeline_page
+        assert "Waiting to download" in pipeline_page
+
+
+def test_changed_rules_reclassify_on_the_next_run(fake):
+    from sqlalchemy import select
+
+    from ufo.db import Document, session_scope
+
+    FakeSource.records = [rec("V1", date(2026, 5, 8), media="video", url=None)]
+    pipeline.run_pipeline()
+    assert not pipeline.llm_upgrade_pending()
+    with session_scope() as db:  # classified by an older version of the keyword rules
+        d = db.scalar(select(Document))
+        d.classification = {**d.classification, "rules_version": 1}
+    assert pipeline.llm_upgrade_pending()
+    run_id = pipeline.run_pipeline()
+    with session_scope() as db:
+        from ufo.classify import RULES_VERSION
+        from ufo.db import PipelineRun
+
+        assert db.scalar(select(Document)).classification["rules_version"] == RULES_VERSION
+        assert "re-classifying 1 records with keyword rules" in db.get(PipelineRun, run_id).log
+    assert not pipeline.llm_upgrade_pending()
 
 
 def test_seed_roundtrip(fake, tmp_path, monkeypatch):

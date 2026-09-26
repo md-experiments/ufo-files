@@ -11,6 +11,10 @@ from .taxonomy import FACET_LABELS, FACETS, era_for_year, label
 
 log = logging.getLogger(__name__)
 
+# Bump when the keyword rules change: records the rules classified under an
+# older version are re-classified on the next pipeline run.
+RULES_VERSION = 2
+
 
 @dataclass
 class Classification:
@@ -57,6 +61,7 @@ def classify_document(
         assessment=rules.assessment,
         significance=None,
         tags={k: list(v) for k, v in rules.tags.items()},
+        details={"rules_version": RULES_VERSION},
     )
 
     s = get_settings()
@@ -121,4 +126,4 @@ def classify_document(
     )
 
 
-__all__ = ["Classification", "classify_document", "FACETS", "FACET_LABELS", "label"]
+__all__ = ["Classification", "classify_document", "FACETS", "FACET_LABELS", "RULES_VERSION", "label"]

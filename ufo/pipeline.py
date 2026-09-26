@@ -425,41 +425,48 @@ def _analysis_outdated() -> bool:
         return analysis_outdated(db)
 
 
-def _needs_llm_classification(db) -> list[int]:
-    """Records classified by the rules or another model while an LLM is now
-    configured. Records the current model already failed on are left alone
-    (reset them with ``python -m ufo reprocess classify`` to retry)."""
+def _needs_reclassification(db) -> tuple[list[int], str]:
+    """Records whose classification is out of date, and why.
+
+    With an LLM configured: records classified by the rules or another model.
+    Records the current model already failed on are left alone (reset them
+    with ``python -m ufo reprocess classify`` to retry). Without one: records
+    the keyword rules classified under an older version of the rules."""
+    from .classify import RULES_VERSION
+
     s = get_settings()
-    if not s.llm_available:
-        return []
     out = []
     for doc_id, classifier, details in db.execute(
             select(Document.id, Document.classifier, Document.classification).where(Document.status == "classified")):
-        if classifier == s.llm_model:
-            continue
-        if (details or {}).get("llm_error_model") == s.llm_model:
-            continue
-        out.append(doc_id)
-    return out
+        details = details or {}
+        if s.llm_available:
+            if classifier == s.llm_model or details.get("llm_error_model") == s.llm_model:
+                continue
+            out.append(doc_id)
+        elif classifier == "rules" and details.get("rules_version", 0) < RULES_VERSION:
+            out.append(doc_id)
+    why = f"with {s.llm_model}" if s.llm_available else f"with keyword rules v{RULES_VERSION}"
+    return out, why
 
 
 def llm_upgrade_pending() -> bool:
-    """Records wait for (re-)classification: newly queued ones, or ones an
-    interrupted run left extracted but not yet classified."""
+    """Records wait for (re-)classification: newly queued ones, ones an
+    interrupted run left extracted but not yet classified, or ones whose
+    classification is out of date (new LLM key, or changed keyword rules)."""
     with session_scope() as db:
         if db.scalar(select(func.count(Document.id)).where(Document.status.in_(("extracted", "downloaded")))):
             return True
-        return bool(_needs_llm_classification(db))
+        return bool(_needs_reclassification(db)[0])
 
 
 def _queue_llm_classification(rlog: RunLog) -> None:
     with session_scope() as db:
-        ids = _needs_llm_classification(db)
+        ids, why = _needs_reclassification(db)
         if not ids:
             return
         for doc in db.scalars(select(Document).where(Document.id.in_(ids))):
             doc.status = "extracted"  # text stays; only classification reruns
-    rlog("re-classifying %d records with %s", len(ids), get_settings().llm_model)
+    rlog("re-classifying %d records %s", len(ids), why)
 
 
 def run_analysis_step(rlog: RunLog) -> None:

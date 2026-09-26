@@ -139,8 +139,11 @@ def label(facet: str, value: str) -> str:
     known = FACETS.get(facet, {}).get(value)
     if known:
         return known
-    # free-text values (agency names) are shown as published
-    return value.replace("_", " ").title() if "_" in value else value
+    if facet in FACETS:  # a machine value this version doesn't know
+        return value.replace("_", " ").capitalize()
+    # free-text facets (agency names) are shown exactly as published: never
+    # title-cased, so "FBI" stays "FBI" and "Department of War" keeps its "of"
+    return value
 
 
 def era_for_year(year: int | None) -> str | None:
