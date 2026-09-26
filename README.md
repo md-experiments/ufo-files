@@ -238,8 +238,9 @@ Keep one replica. The scheduler runs inside the web process.
 | `LLM_MODEL` | `claude-opus-5` / `gpt-6-luna` | model for the active provider |
 | `OPENAI_REASONING_EFFORT` | `none` | thinking level for OpenAI reasoning models (`none`, `low`, `medium`, `high`, …) |
 | `LLM_TAGGING` | `true` | let the LLM tag sighting accounts (otherwise keyword rules) |
-| `LLM_WORKERS` | `4` | concurrent tagging requests |
-| `LLM_MAX_CHARS` | `300000` | longer texts are sent as head + tail, and the record is flagged `llm_input_truncated` |
+| `LLM_WORKERS` | `4` | concurrent LLM requests (classification and tagging) |
+| `LLM_TIMEOUT` | `180` | seconds to wait for one LLM reply; on timeout the record keeps its rules result |
+| `LLM_MAX_CHARS` | `120000` | longer texts are sent as head + tail, and the record is flagged `llm_input_truncated` |
 | `SCHEDULER_ENABLED` | `true` | run the pipeline from the web process |
 | `RUN_PIPELINE_ON_STARTUP` | `true` | run once at boot |
 | `PIPELINE_INTERVAL_HOURS` | `24` | how often to check for new releases |

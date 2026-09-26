@@ -185,7 +185,7 @@ def _extract(doc_id: int) -> None:
         path.unlink(missing_ok=True)
 
 
-def _classify(doc_id: int) -> None:
+def _classify(doc_id: int):
     with session_scope() as db:
         doc = db.get(Document, doc_id)
         args = dict(
@@ -225,6 +225,7 @@ def _classify(doc_id: int) -> None:
         doc.status = "classified"
         doc.error = None
         doc.processed_at = utcnow()
+    return c
 
 
 def process_pending(
@@ -259,6 +260,7 @@ def process_pending(
     failed: set[int] = set()
     ok = 0
     count_lock = threading.Lock()
+    llm_failures: list[str] = []
     extract_lock = threading.Lock()  # OCR has its own process pool; one document at a time
 
     def finish(doc_id: int) -> None:
@@ -273,9 +275,14 @@ def process_pending(
                     _extract(doc_id)
             elif media == "pdf" and status != "extracted":
                 return  # no file (e.g. no link published)
-            _classify(doc_id)
+            c = _classify(doc_id)
+            err = c.details.get("llm_error") if c else None
             with count_lock:
                 ok += 1
+                if err:
+                    llm_failures.append(err)
+                    if len(llm_failures) <= 5:
+                        rlog("LLM classification failed for doc %d (kept rules result): %s", doc_id, err[:200])
                 if ok % 10 == 0:
                     rlog("processed %d/%d", ok, len(rows))
         except Exception as exc:
@@ -317,6 +324,8 @@ def process_pending(
         for doc_id in _from_bundles(missing, bundles, rlog):
             failed.discard(doc_id)
             finish(doc_id)
+    if llm_failures:
+        rlog("LLM classification failed for %d records; they keep the rules result", len(llm_failures))
     rlog("processed %d, failed %d", ok, len(failed))
     return ok, len(failed)
 

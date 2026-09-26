@@ -39,7 +39,7 @@ def parse(system: str, prompt: str, schema: type[T], max_tokens: int = 16000) ->
 def _anthropic(system: str, prompt: str, schema: type[T], max_tokens: int) -> T | None:
     import anthropic
 
-    client = anthropic.Anthropic(max_retries=4)
+    client = anthropic.Anthropic(max_retries=2, timeout=get_settings().llm_timeout)
     response = client.beta.messages.parse(
         model=model(),
         max_tokens=max_tokens,
@@ -64,7 +64,7 @@ def _reasoning_model(name: str) -> bool:
 def _openai(system: str, prompt: str, schema: type[T], max_tokens: int) -> T | None:
     import openai
 
-    client = openai.OpenAI(max_retries=4)
+    client = openai.OpenAI(max_retries=2, timeout=get_settings().llm_timeout)
     name = model()
     effort = get_settings().openai_reasoning_effort
     extra = {"reasoning": {"effort": effort}} if _reasoning_model(name) and effort else {}

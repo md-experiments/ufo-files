@@ -73,9 +73,11 @@ class Settings:
     llm_model_override: str = field(default_factory=lambda: os.environ.get("LLM_MODEL", "").strip())
     llm_tagging: bool = field(default_factory=lambda: _bool("LLM_TAGGING", True))
     llm_workers: int = field(default_factory=lambda: _int("LLM_WORKERS", 4))
+    # seconds to wait for one LLM reply before giving up (the record keeps its rules result)
+    llm_timeout: int = field(default_factory=lambda: _int("LLM_TIMEOUT", 180))
     # OpenAI reasoning effort; gpt-6-luna accepts none/low/medium/high/xhigh/max
     openai_reasoning_effort: str = field(default_factory=lambda: os.environ.get("OPENAI_REASONING_EFFORT", "none").strip().lower())
-    llm_max_chars: int = field(default_factory=lambda: _int("LLM_MAX_CHARS", 300_000))
+    llm_max_chars: int = field(default_factory=lambda: _int("LLM_MAX_CHARS", 120_000))
 
     # Scheduling (web process)
     scheduler_enabled: bool = field(default_factory=lambda: _bool("SCHEDULER_ENABLED", True))
