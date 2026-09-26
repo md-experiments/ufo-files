@@ -21,7 +21,7 @@ from collections import Counter, defaultdict
 from datetime import date
 
 import numpy as np
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from ..db import AnalysisResult, Document, Mention, Observation, Tag, session_scope, utcnow
@@ -34,6 +34,7 @@ log = logging.getLogger(__name__)
 
 CLUSTER_THRESHOLD = 0.34  # min average similarity inside a cluster
 LINK_THRESHOLD = 0.36  # min similarity for a "discovered link" between collections
+ANALYSIS_VERSION = 2  # bump when stored results change shape; triggers a rebuild on startup
 MIN_PAIR_COUNT = 4  # co-occurrence pairs seen fewer times are noise
 
 
@@ -83,6 +84,12 @@ def load_results(db: Session) -> dict:
     return out
 
 
+def analysis_outdated(db: Session) -> bool:
+    """True when results exist but were computed by an older version."""
+    row = db.get(AnalysisResult, "version")
+    return db.scalar(select(func.count()).select_from(AnalysisResult)) > 0 and (row is None or row.data != ANALYSIS_VERSION)
+
+
 # ---------------------------------------------------------------------------
 
 def compute(db: Session) -> dict:
@@ -129,6 +136,7 @@ def compute(db: Session) -> dict:
     from .matching import link_previews
 
     link_previews(db, results["links"], boilerplate_sentences(d.description or "" for d in docs.values()))
+    results["version"] = ANALYSIS_VERSION
     results["overview"] = {
         "sighting_units": len(all_units),
         "observations": len(obs),

@@ -53,6 +53,20 @@ def _last_finished_run() -> datetime | None:
         return db.scalar(select(func.max(PipelineRun.started_at)).where(PipelineRun.finished_at.is_not(None)))
 
 
+def _refresh_outdated_analysis() -> None:
+    """Recompute patterns after an upgrade changed what the analysis stores."""
+    from ..analyze import analysis_outdated, run_analysis
+
+    try:
+        with session_scope() as db:
+            outdated = analysis_outdated(db)
+        if outdated:
+            log.info("analysis results are from an older version; recomputing")
+            run_analysis()
+    except Exception:
+        log.exception("analysis refresh failed")
+
+
 def _scheduler_loop() -> None:
     """Run the pipeline once every PIPELINE_INTERVAL_HOURS, counted from the
     last finished run, so restarts and redeploys don't cause extra runs."""
@@ -64,6 +78,7 @@ def _scheduler_loop() -> None:
     s = get_settings()
     interval = timedelta(hours=max(0.25, s.pipeline_interval_hours))
     first = True
+    _refresh_outdated_analysis()
     while not _stop.is_set():
         try:
             last = _last_finished_run()
