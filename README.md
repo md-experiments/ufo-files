@@ -2,7 +2,8 @@
 
 A pipeline and web app that tracks the U.S. government's declassified UFO / UAP
 file releases. It checks for new releases, downloads the files, extracts their
-text (OCR for scanned pages), classifies what each record is about, looks for
+text (OCR for scanned pages), classifies what each record is about, summarises
+every event each record describes and sorts those into a hierarchy, looks for
 connections across records (waves of reports, recurring details, clusters of
 similar cases), and shows it all in a visual site anyone can browse.
 
@@ -195,6 +196,55 @@ seconds for the current ~450 records and 10,000 pages):
   (`/patterns/encounters/{ce1,ce2,ce3}`). A kind with fewer than 8 accounts
   or 3 records is listed rather than compared.
 
+* **Episodes** (`episodes.py`, `hierarchy.py`). Every record is cut into
+  *episodes*: one for each distinct event it describes, each summarised in a
+  sentence or two and classed by what happened. A case-file section that
+  lists a dozen sightings gets a dozen episodes; a report that runs over
+  several pages is one episode listing all of its pages; a record that
+  reports no event (a policy memo, a public letter, a study) gets one
+  episode of class *no specific event*. Each episode carries the pages it
+  was read from, an event class, the details it reports (the event tags
+  above plus context: over water, from an aircraft, near a military or
+  nuclear site, landed, occupants, crash, debris, police or military
+  witnesses, policy / study / inquiry / claims), the year and place when
+  the text states them, and the outcome the record gives (unexplained,
+  identified with the explanation, hoax, or none stated).
+
+  The hierarchy is derived from those fields in code, so it can be re-tuned
+  without re-reading the files. The top level is the event class:
+
+  | Class | Subcategories (first match wins) |
+  |---|---|
+  | Object or light seen in the sky | seen and tracked on radar · over water or from a ship · seen from an aircraft · several objects or a formation · fireball · structured object · hovering, speed or manoeuvres · lights at night · other |
+  | Detected by instruments | infrared / targeting-pod video · radar track · sonar · photograph or film · telescope or theodolite · other |
+  | Close encounter or physical effects | occupants seen · engine, electrical or instrument interference · effects on witnesses · animals reacted · landed · paced a vehicle · at close range · other |
+  | Physical evidence found | crash or wreckage · fragments or material · markings on the ground · object found on the ground · other |
+  | Observed from space or in orbit | seen by an astronaut · anomaly in a space photograph · tracked in orbit · other |
+  | No specific event | policy and programs · analysis and studies · public letters · contact and conspiracy claims · other |
+
+  Where an episode comes from, in order of precedence:
+  1. **Hand-read** (`data/episodes/curated.json.gz`): every record in the
+     bundled snapshot was read page by page and classified by Claude in an
+     editing session, not by keyword rules. The file is keyed by record id
+     and loaded on every analysis; `python -m ufo episodes check` reports
+     records without an entry or whose text has changed since it was read.
+  2. **LLM**: with an API key set, records that have no curated entry (new
+     releases) are read by the model with the same guide and vocabulary
+     (`llm_episodes.py`). Results are cached by text and model, so a new
+     release costs only its own records. `LLM_EPISODES=false` turns this off.
+  3. **Rules**: otherwise each tagged sighting account becomes an episode
+     with a summary written from its event tags ("A pilot saw a silvery
+     disc-shaped object in daylight, tracked on radar. It hovered,
+     accelerated away suddenly and made no sound."), and a record with no
+     accounts gets one episode from the publisher's description.
+
+  To extend the hand-read set (after a release, say), `python -m ufo
+  episodes export-input DIR --only-new` writes the new records' sighting
+  passages as JSON batches with a `GUIDE.md`; a reader (a person, or
+  Claude) writes one output file per batch; `python -m ufo episodes import
+  DIR` validates the files against the taxonomy and merges them into the
+  curated file.
+
 Run it by hand with `python -m ufo analyze`.
 
 ## Web app
@@ -234,6 +284,17 @@ Run it by hand with `python -m ufo analyze`.
 
   Every mark links to `/patterns/evidence?feature=&year=&place=`, which lists
   the matching sighting pages with quotes.
+* **Events** (`/events`): what happens in the files, one episode at a
+  time. An org chart of the hierarchy (class, then subcategory, with counts
+  and share bars), a map of every episode as a dot packed inside its
+  subcategory and class circles (hover for the summary, click to open the
+  record at that page), how each class ends (outcome stated by the record),
+  the mix of classes by decade, and a card per subcategory with an example.
+  `/events/{class}` lists each subcategory with a few examples;
+  `/events/{class}/{subcategory}` lists every episode, grouped by record.
+  Each record page has a "What happens in this record" section with its
+  episodes and their place in the hierarchy. `/api/events` returns the
+  hierarchy and every episode as JSON.
 * **Connections** (`/patterns/links`): every cross-link, with its
   best-matching pair of accounts. `/patterns/compare?a=&b=` compares any two
   records account by account. Each matching pair shows:
@@ -260,7 +321,7 @@ Run it by hand with `python -m ufo analyze`.
 * **Pipeline** (`/pipeline`): records by processing stage (waiting to download
   / extract / classify), recent runs with logs, and the files that could not
   be fetched.
-* **JSON API**: `/api/stats`, `/api/patterns`, `/api/documents?q=&release=&agency=&media=&tag=facet:value`,
+* **JSON API**: `/api/stats`, `/api/patterns`, `/api/events`, `/api/documents?q=&release=&agency=&media=&tag=facet:value`,
   `/api/documents/{id}`. Timestamps are UTC and end in `Z`. `POST /api/pipeline/run` with
   `Authorization: Bearer $ADMIN_TOKEN` triggers a run.
 * Dates are shown as `2 Jul 1952` everywhere. Unknown pages and bad ids get
@@ -314,6 +375,7 @@ Keep one replica. The scheduler runs inside the web process.
 | `LLM_MODEL` | `claude-opus-5` / `gpt-6-luna` | model for the active provider |
 | `OPENAI_REASONING_EFFORT` | `none` | thinking level for OpenAI reasoning models (`none`, `low`, `medium`, `high`, …) |
 | `LLM_TAGGING` | `true` | let the LLM tag sighting accounts (otherwise keyword rules) |
+| `LLM_EPISODES` | `true` | let the LLM read records without a hand-read entry into episodes (otherwise rules) |
 | `LLM_WORKERS` | `4` | concurrent LLM requests (classification and tagging) |
 | `LLM_TIMEOUT` | `180` | seconds to wait for one LLM reply; on timeout the record keeps its rules result |
 | `LLM_MAX_CHARS` | `120000` | longer texts are sent as head + tail, and the record is flagged `llm_input_truncated` |
@@ -334,7 +396,10 @@ python -m ufo status             # counts by processing status
 python -m ufo reprocess classify # re-label everything (e.g. after adding an API key)
 python -m ufo reprocess extract DOW-UAP-D102   # re-extract one record
 python -m ufo extract-file some.pdf --force-ocr
-python -m ufo analyze            # recompute waves, recurring details, clusters and links
+python -m ufo analyze            # recompute waves, recurring details, clusters, links and episodes
+python -m ufo episodes check     # which records have hand-read episodes, and the class counts
+python -m ufo episodes export-input batches --only-new   # passages of new records, for reading
+python -m ufo episodes import batches                    # merge a reader's output files
 python -m ufo export-seed        # refresh data/seed/ufo-seed.json.gz
 
 uvicorn ufo.web.app:app --reload
@@ -354,6 +419,11 @@ app work unchanged. Candidates include AARO case-resolution reports
 * Summaries and labels are generated automatically. Keyword rules are coarse,
   and OCR of old or redacted scans is noisy. Every record links back to the
   original file.
+* Episode summaries are short readings of that noisy text. The hand-read
+  ones were written from the extracted pages, not the original scans, and
+  where a table or clipping was too garbled to separate, its cases were
+  grouped into one episode. Each summary links to the page it was read
+  from, so it can be checked.
 * "Official assessment" reports what the record itself concludes, not a
   judgment by this project.
 * Patterns are statistical. A wave means more *released pages* mention a

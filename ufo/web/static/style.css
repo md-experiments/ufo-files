@@ -516,3 +516,52 @@ mark.ev.hit { background: var(--mark); border-bottom: 2px solid var(--hot); padd
   .profile-grid, .encounter-grid { grid-template-columns: minmax(0, 1fr); }
   .split-card .stack-row { grid-template-columns: minmax(0, 7rem) 1fr 2.2rem; }
 }
+
+/* ---- Events: org chart, map, episodes ---- */
+:root { --series-5: #8e5bd1; --series-6: #77766f; }
+.ev-sighting { --ev: var(--series-1); } .ev-sensor { --ev: var(--series-3); } .ev-encounter { --ev: var(--series-2); }
+.ev-traces { --ev: var(--series-4); } .ev-space { --ev: var(--series-5); } .ev-none { --ev: var(--series-6); }
+.sw.ev-sighting { background: var(--series-1); } .sw.ev-sensor { background: var(--series-3); } .sw.ev-encounter { background: var(--series-2); }
+.sw.ev-traces { background: var(--series-4); } .sw.ev-space { background: var(--series-5); } .sw.ev-none { background: var(--series-6); }
+h1 .sw, h2 .sw { display: inline-block; width: 14px; height: 14px; border-radius: 4px; vertical-align: -1px; }
+.orgchart { --line: var(--border); }
+.org-root { display: inline-block; padding: 8px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); margin: 4px 0 0 0; }
+.org-root .count { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.org-level { list-style: none; margin: 0; padding: 18px 0 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; position: relative; }
+.org-level::before { content: ""; position: absolute; left: 12px; right: 12px; top: 9px; border-top: 1px solid var(--line); }
+.org-branch { position: relative; min-width: 0; }
+.org-branch::before { content: ""; position: absolute; left: 50%; top: -9px; height: 9px; border-left: 1px solid var(--line); }
+.org-node { display: block; border: 1px solid var(--border); border-left: 4px solid var(--ev, var(--accent)); border-radius: 8px; padding: 8px 10px; background: var(--surface-1); color: inherit; }
+.org-node:hover, .org-node:focus { border-color: var(--ev, var(--accent)); outline: none; }
+.org-node .org-title { display: block; font-weight: 600; font-size: .92rem; }
+.org-node .org-title .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--ev); margin-right: 6px; }
+.org-node .count { display: block; font-variant-numeric: tabular-nums; font-size: .85rem; color: var(--text-secondary); }
+.org-node .org-bar { display: block; height: 5px; background: var(--surface-2); border-radius: 3px; margin: 5px 0 2px; overflow: hidden; }
+.org-node .org-bar span { display: block; height: 100%; background: var(--ev, var(--accent)); }
+.org-node .org-desc { display: block; font-size: .75rem; color: var(--text-muted); margin-top: 4px; }
+.org-node.sub { padding: 5px 8px; border-left-width: 3px; }
+.org-node.sub .org-title { font-weight: 500; font-size: .82rem; }
+.org-node.sub .count { display: inline; font-size: .78rem; }
+.org-subs { list-style: none; margin: 0 0 0 14px; padding: 6px 0 0 10px; border-left: 1px solid var(--line); display: grid; gap: 5px; }
+.org-subs li { position: relative; }
+.org-subs li::before { content: ""; position: absolute; left: -10px; top: 50%; width: 10px; border-top: 1px solid var(--line); }
+.org-example { margin: 8px 0 0 14px; color: var(--text-secondary); }
+.evmap .pt:hover { stroke: var(--text-primary); stroke-width: 1.5; fill-opacity: 1; }
+.evmap .ev-class:hover, .evmap .ev-sub:hover { fill-opacity: .18; }
+.evmap .ev-label { fill: var(--text-primary); stroke: var(--surface-1); }
+.evmap .ev-sublabel { fill: var(--text-secondary); stroke: var(--surface-1); }
+.ev-list { display: grid; gap: 10px; margin-top: 8px; }
+.episode { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-1); min-width: 0; }
+.episode .ev-summary { margin: 0 0 6px; font-size: .95rem; line-height: 1.5; }
+.episode .chips .chip { font-size: .7rem; }
+.chip .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; vertical-align: 0; }
+.ev-subgrid { margin-top: 8px; }
+.ev-subcard h3 { margin: 0 0 4px; font-size: 1rem; }
+.ev-subcard .ev-summary { margin: 6px 0 2px; }
+.doc-episodes .episode { margin-bottom: 8px; }
+.doc-episodes .ev-path { font-size: .75rem; color: var(--text-muted); margin-bottom: 4px; }
+@media (max-width: 720px) {
+  .org-level { grid-template-columns: 1fr; padding-top: 10px; }
+  .org-level::before, .org-branch::before { display: none; }
+  .grid.cols-3.ev-subgrid { grid-template-columns: 1fr; }
+}

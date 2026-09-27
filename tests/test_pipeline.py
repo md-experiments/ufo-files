@@ -309,12 +309,16 @@ def test_analysis_stage_and_patterns_pages(fake):
         assert r["outcomes"]["stated"]["overview"]["derived"] == {}
         assert r["redaction"]["overview"]["records"] == 15
         assert {k["key"] for k in r["encounters"]["kinds"]} == {"ce1", "ce2", "ce3"}
+        # every record gets at least one episode; the hierarchy is derived from them
+        assert r["hierarchy"]["total"] >= 15 and r["hierarchy"]["records"] == 15
+        assert r["overview"]["episodes"] == r["hierarchy"]["total"]
 
     from ufo.web.app import app
 
     with TestClient(app) as client:
         for path in ["/patterns", "/patterns/evidence?feature=silent", "/patterns/evidence?year=1947",
-                     "/patterns/evidence?place=US-NM", "/api/patterns", "/releases", "/", "/documents/1"]:
+                     "/patterns/evidence?place=US-NM", "/api/patterns", "/releases", "/", "/documents/1",
+                     "/events", "/events/sighting", "/events/sighting/structured", "/api/events"]:
             resp = client.get(path)
             assert resp.status_code == 200, (path, resp.text[-800:])
         page = client.get("/patterns").text
@@ -334,6 +338,14 @@ def test_analysis_stage_and_patterns_pages(fake):
         assert cmp.status_code == 200, cmp.text[-800:]
         assert "Matching accounts" in cmp.text
         assert "Sighting accounts" in client.get("/documents/1").text  # the tagged paragraphs
+        assert "What happens in this record" in client.get("/documents/1").text
+        events = client.get("/events").text
+        assert "Every event, in a sentence or two" in events and "Map of events" in events
+        assert client.get("/events/spaceship").status_code == 404
+        assert client.get("/events/sighting/nope").status_code == 404
+        ev = client.get("/api/events").json()
+        assert ev["episodes"] and ev["hierarchy"]["total"] == len(ev["episodes"])
+        assert "/events/sighting" in client.get("/sitemap.xml").text
         r = client.get("/api/patterns").json()
         for t in r["clusters"]:
             assert client.get(f"/patterns/types/{t['id']}").status_code == 200

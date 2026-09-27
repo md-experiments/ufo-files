@@ -39,6 +39,18 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("analyze", help="recompute cross-record patterns (waves, clusters, links)")
 
+    p = sub.add_parser("episodes", help="the hand-read episodes behind the Events page")
+    ep = p.add_subparsers(dest="ep_cmd", required=True)
+    ep.add_parser("guide", help="print the reading guide (classes, details, outcomes)")
+    q = ep.add_parser("export-input", help="write the records' sighting passages as batches for reading")
+    q.add_argument("dir")
+    q.add_argument("--batch-chars", type=int, default=140_000)
+    q.add_argument("--only-new", action="store_true", help="skip records that already have a curated entry")
+    q = ep.add_parser("import", help="validate reader output files and merge them into the curated file")
+    q.add_argument("dir")
+    q.add_argument("--out", default=None, help="curated file to write (default: the bundled one)")
+    ep.add_parser("check", help="compare the curated file with the database")
+
     sub.add_parser("status", help="summarise the database")
 
     args = parser.parse_args(argv)
@@ -78,6 +90,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f"imported {import_seed(Path(args.path))} documents")
     elif args.cmd == "analyze":
         pipeline.run_analysis_step(pipeline.RunLog())
+    elif args.cmd == "episodes":
+        from .analyze import curate
+
+        if args.ep_cmd == "guide":
+            print(curate.reader_instructions())
+        elif args.ep_cmd == "export-input":
+            n, b = curate.export_input(Path(args.dir), batch_chars=args.batch_chars, only_new=args.only_new)
+            print(f"wrote {n} records in {b} batches to {args.dir}")
+        elif args.ep_cmd == "import":
+            rep = curate.import_output(Path(args.dir), Path(args.out) if args.out else None)
+            print(rep)
+        elif args.ep_cmd == "check":
+            print(curate.check())
     elif args.cmd == "status":
         from sqlalchemy import func, select
         from .db import Document, PipelineRun, session_scope

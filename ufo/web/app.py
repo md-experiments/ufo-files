@@ -23,6 +23,7 @@ from .. import __version__
 from ..classify.taxonomy import FACET_LABELS, FACETS, label
 from ..config import get_settings
 from ..db import AnalysisResult, Document, init_db, session_scope
+from . import events as EV
 from . import patterns as P
 from . import queries as Q
 from .fmt import DATE_FMT, date_label, description_remainder, fmt_date, incident_date_text
@@ -353,7 +354,7 @@ def document(request: Request, doc_id: int):
         if not doc:
             raise HTTPException(404, "document not found")
         return render(request, "document.html", doc=doc, groups=Q.grouped_tags(doc), related=Q.related(db, doc),
-                      patterns=P.document_patterns(db, doc),
+                      patterns=P.document_patterns(db, doc), episodes=EV.document_episodes(db, doc),
                       description_rest=description_remainder(doc.summary, doc.description))
 
 
@@ -441,6 +442,37 @@ def patterns_compare(request: Request, a: int, b: int):
         if not c:
             raise HTTPException(404, "records not found")
         return render(request, "compare.html", c=c)
+
+
+@app.get("/events", response_class=HTMLResponse)
+def events_page(request: Request):
+    """What happens in the files: every episode in a hierarchy of event classes."""
+    with session_scope() as db:
+        return render(request, "events.html", p=EV.events_context(db))
+
+
+@app.get("/events/{event}", response_class=HTMLResponse)
+def events_class(request: Request, event: str):
+    with session_scope() as db:
+        g = EV.event_group(db, event)
+        if not g:
+            raise HTTPException(404, "event class not found")
+        return render(request, "events_group.html", g=g)
+
+
+@app.get("/events/{event}/{sub}", response_class=HTMLResponse)
+def events_sub(request: Request, event: str, sub: str):
+    with session_scope() as db:
+        g = EV.event_group(db, event, sub)
+        if not g:
+            raise HTTPException(404, "event subcategory not found")
+        return render(request, "events_group.html", g=g)
+
+
+@app.get("/api/events")
+def api_events():
+    with session_scope() as db:
+        return EV.api_events(db)
 
 
 @app.get("/api/patterns")
@@ -567,7 +599,7 @@ def robots(request: Request):
 def sitemap(request: Request):
     """Every page worth indexing: the sections, each record, each sighting type."""
     base = str(request.base_url).rstrip("/")
-    urls: list[tuple[str, date | None]] = [(p, None) for p in ("/", "/releases", "/patterns", "/patterns/links", "/documents")]
+    urls: list[tuple[str, date | None]] = [(p, None) for p in ("/", "/releases", "/patterns", "/patterns/links", "/events", "/documents")]
     with session_scope() as db:
         for doc_id, updated in db.execute(select(Document.id, Document.updated_at).order_by(Document.id)):
             urls.append((f"/documents/{doc_id}", updated.date() if updated else None))
@@ -575,6 +607,11 @@ def sitemap(request: Request):
         for c in (clusters.data if clusters else []) or []:
             if "signature" in c:  # the ones with their own page
                 urls.append((f"/patterns/types/{c['id']}", None))
+        hierarchy = db.get(AnalysisResult, "hierarchy")
+        for c in (hierarchy.data.get("classes", []) if hierarchy else []):
+            if c["count"]:
+                urls.append((f"/events/{c['key']}", None))
+                urls += [(f"/events/{c['key']}/{s['key']}", None) for s in c["subs"]]
     body = ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
     for path, lastmod in urls:
         body.append(f"<url><loc>{escape(base + path)}</loc>" + (f"<lastmod>{lastmod.isoformat()}</lastmod>" if lastmod else "") + "</url>")

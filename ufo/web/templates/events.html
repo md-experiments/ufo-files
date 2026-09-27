@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Events · UFO Files{% endblock %}
+{% block content %}
+<section class="hero">
+  <div>
+    <div class="eyebrow">What happens in the files</div>
+    <h1>Every event, in a sentence or two</h1>
+    <p>Each record is cut into episodes: one for every distinct event it describes, so a case-file section that lists a dozen sightings gets a dozen summaries. Every episode is classed by what happened (seen in the sky, picked up by instruments, a close encounter, physical evidence, observed from space, or no specific event) and by the details it reports, which sort it into a subcategory: over water, seen from an aircraft, engines failing, landed, occupants, markings on the ground. The records in the bundled snapshot were read and classed one by one, not matched by keyword.</p>
+  </div>
+  <div class="status-line">
+    {% if p.ready %}<span>Computed {{ p.computed_at | ago }}. {% for label, n in p.sources %}{{ n | n }} episode{{ 's' if n != 1 }} {{ label }}{{ '; ' if not loop.last }}{% endfor %}. Summaries are short readings of noisy scans: open the record before relying on one.</span>{% endif %}
+  </div>
+</section>
+
+{% if not p.ready %}
+<div class="empty">The episodes are written after the pipeline has processed records. Check back shortly.</div>
+{% else %}
+<section class="tiles" aria-label="Event totals">
+  <div class="tile"><div class="v">{{ p.total | n }}</div><div class="k">Episodes</div><div class="s">distinct events summarised</div></div>
+  <div class="tile"><div class="v">{{ p.records | n }}</div><div class="k">Records</div><div class="s">each with at least one episode</div></div>
+  <div class="tile"><div class="v">{{ p.n_classes }}</div><div class="k">Event classes</div><div class="s">{{ p.n_subs }} subcategories</div></div>
+  <div class="tile"><div class="v">{{ p.outcomes.get('unexplained', 0) | n }}</div><div class="k">Left unexplained</div><div class="s">by the record itself</div></div>
+  <div class="tile"><div class="v">{{ p.outcomes.get('identified', 0) | n }}</div><div class="k">Identified</div><div class="s">balloons, aircraft, stars, meteors…</div></div>
+</section>
+
+<section class="section card" id="tree">
+  <h2>How the events sort <small>class, then subcategory</small></h2>
+  <p class="secondary small">The class says what kind of thing happened. The subcategory is derived from the details each episode reports, in a fixed order of priority (an episode that reports both a radar track and a landing counts under close encounters, because effects and proximity outrank how it was seen). Click a node for every episode in it.</p>
+  <div class="orgchart">
+    <div class="org-root"><strong>All events</strong> <span class="count">{{ p.total | n }}</span></div>
+    <ul class="org-level">
+      {% for c in p.classes %}
+      <li class="org-branch {{ c.cls }}">
+        <a class="org-node" href="/events/{{ c.key }}">
+          <span class="org-title"><span class="sw"></span>{{ c.label }}</span>
+          <span class="count">{{ c.count | n }} <span class="muted">· {{ (100 * c.share) | round | int }}%</span></span>
+          <span class="org-bar"><span style="width: {{ (100 * c.share) | round(1) }}%"></span></span>
+          <span class="org-desc">{{ c.description | capitalize }}.</span>
+        </a>
+        <ul class="org-subs">
+          {% for s in c.subs %}
+          <li><a class="org-node sub" href="/events/{{ c.key }}/{{ s.key }}" title="{{ s.description }}">
+            <span class="org-title">{{ s.label }}</span>
+            <span class="count">{{ s.count | n }}</span>
+            <span class="org-bar"><span style="width: {{ (100 * s.share) | round(1) }}%"></span></span>
+          </a></li>
+          {% endfor %}
+        </ul>
+        {% if c.example %}<p class="org-example small">e.g. <a href="{{ c.example.href }}">{{ c.example.summary | truncate(180) }}</a></p>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</section>
+
+<section class="section card" id="map">
+  <h2>Map of events <small>one dot per episode</small></h2>
+  <p class="secondary small">Each large circle is an event class, the dashed circles inside it are its subcategories, and every dot is one episode, sized to count. Hover a dot to read its summary; click it to open the record at the page it was read from.</p>
+  <div class="chips" style="margin-bottom:8px">{% for label, cls in p.legend %}<span class="chip"><span class="sw {{ cls }}"></span>{{ label }}</span>{% endfor %}</div>
+  <div class="scroll-x">{{ p.map }}</div>
+</section>
+
+<section class="section grid cols-2">
+  <div class="card" id="outcomes">
+    <h2>How each class ends <small>outcome stated by the record</small></h2>
+    <div class="chips" style="margin-bottom:8px">{% for label, cls in p.outcome_legend %}<span class="chip"><span class="sw {{ cls }}"></span>{{ label }}</span>{% endfor %}</div>
+    <div class="stack-rows">
+      {% for c in p.classes %}
+      <div class="stack-row"><a class="stack-name" href="/events/{{ c.key }}">{{ c.label }}</a>{{ c.outcome_bar }}<span class="stack-total small muted">{{ c.count | n }}</span></div>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="card" id="decades">
+    <h2>Mix by decade <small>share of that decade's episodes</small></h2>
+    {% if p.decade_heat %}{{ p.decade_heat }}{% else %}<p class="muted small">No dated episodes yet.</p>{% endif %}
+  </div>
+</section>
+
+{% for c in p.classes %}
+<section class="section" id="{{ c.key }}">
+  <h2><span class="sw {{ c.cls }}"></span> <a href="/events/{{ c.key }}">{{ c.label }}</a> <small>{{ c.count | n }} episode{{ 's' if c.count != 1 }} in {{ c.records | n }} record{{ 's' if c.records != 1 }}{% if c.years %}, {{ c.years[0] }}{% if c.years[1] != c.years[0] %}–{{ c.years[1] }}{% endif %}{% endif %}</small></h2>
+  <p class="secondary small">{{ c.description | capitalize }}.{% if c.top_details %} Most often reported: {% for d in c.top_details %}{{ d.label | lower }}{{ ', ' if not loop.last }}{% endfor %}.{% endif %}{% if c.agencies %} Mostly from {% for a in c.agencies[:3] %}{{ a.agency }}{{ ', ' if not loop.last }}{% endfor %}.{% endif %}</p>
+  <div class="grid cols-3 ev-subgrid">
+    {% for s in c.subs %}
+    <article class="card ev-subcard">
+      <h3><a href="/events/{{ c.key }}/{{ s.key }}">{{ s.label }}</a> <span class="muted small">{{ s.count | n }}</span></h3>
+      <p class="muted small">{{ s.description | capitalize }}.</p>
+      {% if s.example %}<p class="ev-summary small"><a href="{{ s.example.href }}">{{ s.example.summary }}</a></p>
+      <div class="muted small">{{ s.example.doc.record_id }}{% if s.example.year %} · {{ s.example.year }}{% endif %}{% if s.example.place %} · {{ s.example.place }}{% endif %}</div>{% endif %}
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endfor %}
+{% endif %}
+{% endblock %}

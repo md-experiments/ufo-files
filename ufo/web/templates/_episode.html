@@ -1,0 +1,12 @@
+<div class="episode">
+  <p class="ev-summary">{{ e.summary }}</p>
+  <div class="chips">
+    {% if e.doc and g is defined and g.subs is defined %}<a class="small" href="/documents/{{ e.doc.id }}">{{ e.doc.record_id }}</a>{% endif %}
+    <a class="small" href="{{ e.href }}">{{ 'Page' ~ ('s ' if e.pages | length > 1 else ' ') ~ (e.pages | join(', ') if e.pages | length <= 6 else (e.pages[:6] | join(', ')) ~ ' …') if e.page else "Description" }}</a>
+    {% if e.year %}<span class="muted small">{{ e.year }}</span>{% endif %}
+    {% if e.place %}<span class="muted small">{{ e.place }}</span>{% endif %}
+    {% if e.outcome != 'not_stated' %}<span class="chip strong"><span class="sw {{ e.outcome_cls }}"></span>{{ e.outcome_label }}{% if e.explanation %}: {{ e.explanation }}{% endif %}</span>{% endif %}
+    {% for c in e.chips %}<span class="chip ev-chip dim-{{ c.dim }}" title="{{ c.dim_label }}">{{ c.label }}</span>{% endfor %}
+    <span class="muted small" title="how this episode was written">{{ e.source_label }}</span>
+  </div>
+</div>
