@@ -10,6 +10,8 @@ ROWS = [
     ',,5/8/26,"FBI-UAP-D014, Flying Discs, 1947",PDF ,,,,,,FBI,1947,,https://www.war.gov/a.pdf,,,,,,',
     ',,5/8/26,"FBI-UAP-D014, Flying Discs part 2, 1947",PDF,,,,,,FBI,1947,,https://www.war.gov/b.pdf,,,,,,',
     ',,,"no release date",PDF,,,,,,FBI,,,https://www.war.gov/c.pdf,,,,,,',
+    ',,9/18/26,18_6369445_General_1948_Vol_1,PDF,,,"Blue Book general file.",,,Department of War,N/A,Westen United States,https://www.war.gov/d.pdf,,,,,,',
+    ',,9/18/26,"DOW-UAP-D051, Email Correspondence, Pacific Time Zone, March 2023",PDF,,,"An email.",,,Department of War,3/23/26,"Colorado Springs, Colorado, U.S.",https://www.war.gov/e.pdf,,,,,,',
 ]
 
 
@@ -27,7 +29,7 @@ def test_parse_dates():
 
 def test_parse_csv():
     recs = parse_csv(HEADER + "\n".join(ROWS), today=date(2026, 9, 23))
-    assert len(recs) == 5  # row without a release date is skipped
+    assert len(recs) == 7  # row without a release date is skipped
     by_id = {r.record_id: r for r in recs}
 
     d102 = by_id["DOW-UAP-D102"]
@@ -58,3 +60,15 @@ def test_row_hash_changes_with_content():
     b = parse_csv(HEADER + ROWS[0].replace("seabirds", "balloons"))[0]
     assert a.row_hash != b.row_hash
     assert a.row_hash == parse_csv(HEADER + ROWS[0])[0].row_hash
+
+
+def test_parse_csv_tidies_titles_locations_and_dates():
+    recs = {r.record_id: r for r in parse_csv(HEADER + "\n".join(ROWS), today=date(2026, 9, 23))}
+    raw = recs["18_6369445_General_1948_Vol_1"]  # the id stays the filename: it is the key
+    assert raw.title == "General 1948 Vol 1" and raw.raw["Title"] == "18_6369445_General_1948_Vol_1"
+    assert raw.incident_location == "Western United States" and raw.incident_year == 1948
+    email = recs["DOW-UAP-D051"]
+    assert email.incident_location == "Colorado Springs, Colorado"
+    assert email.incident_date is None and email.incident_date_raw == "3/23/26" and email.incident_year == 2023
+    # "Unresolved UAP Report, Greece, October 2023" with N/A: the title's year is not the release year
+    assert recs["DOW-UAP-PR034"].incident_year == 2023

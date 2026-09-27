@@ -105,3 +105,16 @@ def test_contract_paperwork_is_administrative():
     assert classify_rules("DOW-UAP-D110, AAWSAP Statement of Objectives, July 2008", None, None, "pdf").kind == "administrative"
     assert classify_rules("DOW-UAP-D112, AAWSAP Contract Modification P00001", None, None, "pdf").kind == "administrative"
     assert classify_rules("USPER Statement", "A witness narrative.", None, "pdf").kind == "witness_statement"
+
+
+def test_unresolved_title_settles_the_assessment(env):
+    from ufo.classify import assessment_from_title
+
+    assert assessment_from_title("DOW-UAP-PR140, Unresolved UAP Report, CENTCOM, 2024", "not_assessed") == "unresolved"
+    assert assessment_from_title("DOW-UAP-PR140, Unresolved UAP Report", "resolved_balloon") == "resolved_balloon"
+    assert assessment_from_title("DOW-UAP-D102, Tremonton Film", "not_assessed") == "not_assessed"
+    assert assessment_from_title("DOW-UAP-D102, Tremonton Film", None) == "not_assessed"
+    c = classify_document(record_id="PR140", title="DOW-UAP-PR140, Unresolved UAP Report, CENTCOM, 2024",
+                          description="A report of a spherical object.", text=None, media_type="pdf",
+                          agency="Department of War", location="CENTCOM", incident_year=2024, use_llm=False)
+    assert c.assessment == "unresolved"

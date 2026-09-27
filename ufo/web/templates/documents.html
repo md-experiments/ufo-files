@@ -18,7 +18,7 @@
     {% for m in MEDIA_ORDER %}<option value="{{ m }}" {{ 'selected' if media == m }}>{{ MEDIA_LABELS[m] }}</option>{% endfor %}
   </select>
   <select name="sort" aria-label="Sort">
-    {% for k, v in [('release', 'Newest release'), ('significance', 'Most notable'), ('incident', 'Most recent incident'), ('oldest', 'Oldest incident'), ('pages', 'Most pages')] %}
+    {% for k, v in ([('relevance', 'Best match')] if q else []) + [('release', 'Newest release'), ('significance', 'Most notable'), ('incident', 'Most recent incident'), ('oldest', 'Oldest incident'), ('pages', 'Most pages')] %}
     <option value="{{ k }}" {{ 'selected' if sort == k }}>{{ v }}</option>{% endfor %}
   </select>
   {% for t in tag_values %}<input type="hidden" name="tag" value="{{ t }}">{% endfor %}
@@ -41,7 +41,7 @@
   {% for d in res.items %}{{ doc_card(d, q=q) }}{% endfor %}
 </div>
 {% else %}
-<div class="empty">No records match these filters.</div>
+<div class="empty">{% if q %}Nothing in the files matches “{{ q }}”{% if tags or release or agency or media %} with these filters{% endif %}. Try a shorter word, another spelling, or <a href="/documents">clear the search</a>.{% else %}No records match these filters.{% endif %}</div>
 {% endif %}
 
 {% if res.pages > 1 %}

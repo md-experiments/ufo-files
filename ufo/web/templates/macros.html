@@ -24,18 +24,18 @@
     <span class="badge">{{ d.media_type }}</span>
     {% if d.agency %}<span>{{ d.agency }}</span>{% endif %}
     {% if d.incident_date_raw or d.incident_year %}<span>{{ 'Dated' if date_label(d.document_kind, d.title, d.media_type) == 'Document date' else 'Incident' }}: {{ incident_date(d.incident_date_raw, d.incident_date, d.incident_year) }}</span>{% endif %}
-    {% if d.incident_location %}<span>{{ d.incident_location }}</span>{% endif %}
+    {% if d.incident_location and not is_research(d.document_kind, d.title) %}<span>{{ d.incident_location }}</span>{% endif %}
     {% if show_release and d.release %}<span>{{ d.release.label }}</span>{% endif %}
     {% if d.page_count %}<span>{{ d.page_count }} page{{ 's' if d.page_count != 1 }}{% if d.ocr_page_count %} · {{ d.ocr_page_count }} OCR{% endif %}</span>{% endif %}
   </div>
   <h3><a href="/documents/{{ d.id }}">{{ d.title }}</a></h3>
   {% if q %}
-    <p class="summary">{{ highlight(d.summary or d.description or d.text or '', q) }}</p>
-    {% if d.text and q and (q | lower) in (d.text | lower) and not ((q | lower) in ((d.summary or '') | lower)) %}
+    <p class="summary">{{ highlight(lead(d.summary) or d.description or d.text or '', q) }}</p>
+    {% if q and matches(d.text, q) and not matches(d.summary, q) %}
       <p class="summary small">In text: {{ highlight(d.text, q, 180) }}</p>
     {% endif %}
   {% elif d.summary %}
-    <p class="summary">{{ d.summary | truncate(260) }}</p>
+    <p class="summary">{{ lead(d.summary) | truncate(260) }}</p>
   {% endif %}
   <div class="chips">
     {% if d.assessment and d.assessment != 'not_assessed' %}<a class="chip strong" href="{{ url('/documents', tag='assessment:' ~ d.assessment) }}">{{ label('assessment', d.assessment) }}</a>{% endif %}

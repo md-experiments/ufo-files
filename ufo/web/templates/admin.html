@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Admin · UFO Files{% endblock %}
+{% block content %}
+<h1>Admin</h1>
+<p class="secondary">Runs happen automatically {% if settings.pipeline_interval_hours == 24 %}once a day{% else %}every {{ settings.pipeline_interval_hours | round(1) }} hours{% endif %}. <strong>Run pipeline</strong> checks for new releases, downloads, extracts and classifies, then recomputes the patterns. <strong>Recompute patterns</strong> only redoes the analysis.{% if analysis_at %} Patterns were last computed {{ analysis_at | ago }}.{% endif %}</p>
+<section class="section card admin" id="admin">
+  <h2>Run now</h2>
+  <div class="admin-buttons">
+    <button type="button" data-run="/api/pipeline/run">Run pipeline</button>
+    <button type="button" class="btn ghost" data-run="/api/analysis/run">Recompute patterns</button>
+  </div>
+  <p class="small" id="admin-status" role="status" aria-live="polite"></p>
+  <script>
+  (function () {
+    var status = document.getElementById('admin-status');
+    document.querySelectorAll('[data-run]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        btn.disabled = true; status.textContent = 'Starting…';
+        // the browser re-sends the HTTP auth credentials it used for this page
+        fetch(btn.getAttribute('data-run'), { method: 'POST', credentials: 'same-origin' })
+          .then(function (r) {
+            if (r.status === 202) { status.textContent = 'Started. The run shows on the pipeline page in a few seconds.'; setTimeout(function () { location.reload(); }, 4000); }
+            else if (r.status === 401) { status.textContent = 'Not authorised: reload the page and sign in again.'; }
+            else if (r.status === 409) { status.textContent = 'A run is already in progress; it ends by recomputing the patterns.'; }
+            else { status.textContent = 'Failed (' + r.status + ').'; }
+          })
+          .catch(function () { status.textContent = 'Could not reach the server.'; })
+          .finally(function () { btn.disabled = false; });
+      });
+    });
+  })();
+  </script>
+</section>
+<section class="section card">
+  <h2>Latest runs</h2>
+  {% if runs %}
+  <div class="table-scroll">
+  <table class="data">
+    <thead><tr><th>#</th><th>Started</th><th>Trigger</th><th>Status</th><th class="num">Processed</th><th class="num">Failed</th></tr></thead>
+    <tbody>
+    {% for r in runs %}
+    <tr><td>{{ r.id }}</td><td>{{ r.started_at.strftime('%Y-%m-%d %H:%M') }} UTC</td><td>{{ r.trigger }}</td>
+      <td><span class="dot {{ 'err' if r.status == 'error' else ('run' if r.status == 'running' else '') }}"></span> {{ r.status }}</td>
+      <td class="num">{{ r.processed }}</td><td class="num">{{ r.failed }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}<p class="muted">No runs yet.</p>{% endif %}
+  <p class="small"><a href="/pipeline">Full run history and logs →</a></p>
+</section>
+{% endblock %}

@@ -15,6 +15,7 @@ from datetime import date
 
 from ..fetch import FetchError, fetch
 from .base import RecordInfo, Source
+from .clean import clean_title, normalize_location, reconcile_year
 
 log = logging.getLogger(__name__)
 
@@ -101,12 +102,16 @@ def parse_csv(text: str, today: date | None = None) -> list[RecordInfo]:
             # For A/V rows the link column points at the paired PDF, which is
             # listed as its own record; the media itself lives on DVIDS.
             file_url = DVIDS_VIDEO.format(id=video_id) if video_id else None
+        title = clean_title(title)  # the id above keeps the published form
         raw_date = row.get("Incident Date", "")
         inc_date = parse_us_date(raw_date, today)
-        year = inc_date.year if inc_date else parse_year(raw_date, title)
+        parsed_year = inc_date.year if inc_date else parse_year(raw_date)
+        year, keep_date = reconcile_year(raw_date, parsed_year, title, release_date.year)
+        if not keep_date:
+            inc_date = None  # the two-digit year disagreed with the title
         if year and year > release_date.year:
             year = None
-        location = row.get("Incident Location", "")
+        location = normalize_location(row.get("Incident Location", ""))
         records.append(
             RecordInfo(
                 record_id=record_id,
@@ -118,7 +123,7 @@ def parse_csv(text: str, today: date | None = None) -> list[RecordInfo]:
                 incident_date=inc_date,
                 incident_date_raw=raw_date or None,
                 incident_year=year,
-                incident_location=None if location.upper() in ("", "N/A") else location,
+                incident_location=location,
                 file_url=file_url,
                 thumb_url=row.get("Modal Image") or None,
                 video_id=video_id,

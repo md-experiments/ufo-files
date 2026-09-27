@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from .features import _EMPTY_ANSWER, BY_KEY as OBS, is_sighting_text
+from .features import _EMPTY_ANSWER, BY_KEY as OBS, SIGHTING_MIN_HITS, is_sighting_text, silence_has_exception
 
 # dimension -> (label, weight in similarity). Behaviour and phenomena weigh
 # most; context (number, duration, time of day, how it was seen) little.
@@ -228,6 +228,8 @@ def tag_account(text: str) -> tuple[list[str], list[list]]:
                 continue
             if tag.key != "silent" and _EMPTY_ANSWER.match(text[m.end():m.end() + 40]):
                 continue  # a blank form field: "Sound: none"
+            if tag.key == "silent" and silence_has_exception(text, m.end()):
+                continue  # "no sound, except ... a rumbling roar"
             if _is_label(text, m.start(), m.end()):
                 continue
             if _in_option_list(text, m.start(), m.end()):
@@ -299,12 +301,12 @@ def segment(text: str) -> list[str]:
     return out
 
 
-def candidates_for(units: list[tuple[int, str]]) -> list[Account]:
+def candidates_for(units: list[tuple[int, str]], min_hits: int = SIGHTING_MIN_HITS) -> list[Account]:
     """Passages worth tagging: paragraphs of sighting pages (page 0 is the
     description) where the rules find at least one detail of the phenomenon."""
     out: list[Account] = []
     for page_no, text in units:
-        if page_no != 0 and not is_sighting_text(text):
+        if page_no != 0 and not is_sighting_text(text, min_hits):
             continue
         for seq, chunk in enumerate(segment(text)):
             if len(_TEMPLATE.findall(chunk)) >= 3:

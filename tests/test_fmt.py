@@ -1,7 +1,7 @@
 from datetime import date
 
 from ufo.classify.taxonomy import label
-from ufo.web.fmt import date_label, description_remainder, incident_date_text
+from ufo.web.fmt import date_label, description_remainder, incident_date_text, is_research_record, lead_with_substance
 
 
 def test_dates_are_unambiguous():
@@ -42,3 +42,22 @@ def test_agency_labels_are_shown_as_published():
     assert label("agency", "Executive Office of the President") == "Executive Office of the President"
     assert label("topic", "nuclear") == "Nuclear sites & weapons"
     assert label("topic", "some_new_value") == "Some new value"
+
+
+def test_summaries_lead_with_substance():
+    assert lead_with_substance("This is a Project Blue Book case file on the Tremonton film.") == \
+        "A Project Blue Book case file on the Tremonton film."
+    assert lead_with_substance("This record is an AAWSAP contract award.") == "An AAWSAP contract award."
+    assert lead_with_substance("This document is the 2008 statement of objectives.") == "The 2008 statement of objectives."
+    assert lead_with_substance("A pilot observed an orb.") == "A pilot observed an orb."
+    assert lead_with_substance("This report describes a sighting.") == "This report describes a sighting."  # not a stock opener
+    assert lead_with_substance(None) is None and lead_with_substance("") == ""
+
+
+def test_research_records_are_not_sightings():
+    assert is_research_record("scientific_study")
+    assert is_research_record("administrative", "DOW-UAP-D111, Contract Award")
+    assert is_research_record("analysis", "DOW-UAP-D129, AAWSAP DIRD, Metallic Spintronics, March 2010")
+    assert not is_research_record("analysis", "DOW-UAP-D150, Case Resolution, Nevada")
+    assert not is_research_record("investigation_file", "DOW-UAP-D102, Tremonton Film")
+    assert not is_research_record(None, "DOW-UAP-PR140, Unresolved UAP Report")

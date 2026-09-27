@@ -27,7 +27,8 @@ from ..db import AnalysisResult, Document, init_db, session_scope
 from . import events as EV
 from . import patterns as P
 from . import queries as Q
-from .fmt import DATE_FMT, date_label, description_remainder, fmt_date, incident_date_text
+from .fmt import (DATE_FMT, date_label, date_note, description_remainder, fmt_date, incident_date_text, is_research_record,
+                  lead_with_substance)
 
 log = logging.getLogger(__name__)
 # uvicorn only configures its own loggers; surface the pipeline's progress in
@@ -141,7 +142,10 @@ async def lifespan(app: FastAPI):
     _stop.set()
 
 
-app = FastAPI(title="UFO Files", version=__version__, lifespan=lifespan)
+_docs = get_settings().api_docs  # the generated docs list the admin endpoints: off unless API_DOCS=true
+app = FastAPI(title="UFO Files", version=__version__, lifespan=lifespan,
+              docs_url="/docs" if _docs else None, redoc_url="/redoc" if _docs else None,
+              openapi_url="/openapi.json" if _docs else None)
 app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
 
 
@@ -200,20 +204,30 @@ def _iso(dt: datetime | None) -> str | None:
     return dt.isoformat() + "Z" if dt else None
 
 
+def _find_term(text: str, q: str | None) -> tuple[int, int]:
+    """Where the search term (in any of its spellings) first occurs; (-1, 0) if nowhere."""
+    low = text.lower()
+    hits = [(i, len(v)) for v in Q.query_variants(q) for i in [low.find(v.lower())] if i >= 0]
+    return min(hits) if hits else (-1, 0)
+
+
 def _highlight(text: str, q: str | None, width: int = 220) -> Markup:
-    """A snippet of ``text`` around the first match of ``q``, with the match marked."""
+    """A snippet of ``text`` around the first match of ``q`` (or a variant
+    spelling: "tictac" finds "tic tac"), with the match marked."""
     if not text:
         return Markup("")
-    if not q:
-        return Markup(escape(text[:width] + ("…" if len(text) > width else "")))
-    i = text.lower().find(q.lower())
+    i, n = _find_term(text, q) if q else (-1, 0)
     if i < 0:
         return Markup(escape(text[:width] + ("…" if len(text) > width else "")))
     start = max(0, i - width // 2)
     snippet = text[start:start + width]
     j = i - start
-    out = ("…" if start else "") + str(escape(snippet[:j])) + "<mark>" + str(escape(snippet[j:j + len(q)])) + "</mark>" + str(escape(snippet[j + len(q):]))
+    out = ("…" if start else "") + str(escape(snippet[:j])) + "<mark>" + str(escape(snippet[j:j + n])) + "</mark>" + str(escape(snippet[j + n:]))
     return Markup(out + ("…" if start + width < len(text) else ""))
+
+
+def _matches(text: str | None, q: str | None) -> bool:
+    return bool(text) and _find_term(text, q)[0] >= 0
 
 
 def _meta_text(text: str | None, width: int = 200) -> str | None:
@@ -246,7 +260,8 @@ templates.env.globals.update(
     label=label, FACET_LABELS=FACET_LABELS, FACETS=FACETS, MEDIA_LABELS=Q.MEDIA_LABELS,
     MEDIA_ORDER=Q.MEDIA_ORDER, highlight=_highlight, url=_url, version=__version__, asset_version=ASSET_VERSION,
     incident_date=incident_date_text, date_label=date_label, issues_url=ISSUES_URL, canonical=_canonical,
-    meta_text=_meta_text,
+    meta_text=_meta_text, lead=lead_with_substance, date_note=date_note, is_research=is_research_record,
+    matches=_matches, PAGE_CHUNK=12,
 )
 
 
@@ -261,6 +276,7 @@ def render(request: Request, name: str, status_code: int = 200, **ctx) -> HTMLRe
 ERROR_TITLES = {
     400: "That request couldn't be understood",
     401: "Not authorised",
+    429: "Too many attempts",
     404: "Page not found",
     409: "Try again in a moment",
     500: "Something went wrong",
@@ -280,7 +296,10 @@ def _error_page(request: Request, status: int, detail: str | None = None) -> HTM
 async def _http_error(request: Request, exc: StarletteHTTPException):
     if _wants_json(request):
         return await http_exception_handler(request, exc)
-    return _error_page(request, exc.status_code, exc.detail if isinstance(exc.detail, str) else None)
+    page = _error_page(request, exc.status_code, exc.detail if isinstance(exc.detail, str) else None)
+    for k, v in (exc.headers or {}).items():  # e.g. the Basic auth challenge on /admin
+        page.headers[k] = v
+    return page
 
 
 @app.exception_handler(RequestValidationError)
@@ -342,11 +361,12 @@ def documents(
     agency: str | None = None,
     media: str | None = None,
     tag: list[str] = Query(default=[]),
-    sort: str = "release",
+    sort: str | None = None,
     page: str | None = None,
 ):
     tags = _parse_tags(tag)
     page_no = _page_number(page)
+    sort = sort or ("relevance" if q and q.strip() else "release")
     with session_scope() as db:
         res = Q.search(db, q=q, release=release, agency=agency, media=media, tags=tags, sort=sort, page=page_no)
         if page_no > res.pages:
@@ -393,7 +413,8 @@ def _page_number(value: str | None) -> int:
 
 
 @app.get("/documents/{doc_id}", response_class=HTMLResponse)
-def document(request: Request, doc_id: int):
+def document(request: Request, doc_id: int, all: str | None = None):
+    """``all=1`` sends every page's text at once (no script needed)."""
     with session_scope() as db:
         doc = Q.document(db, doc_id)
         if not doc:
@@ -401,7 +422,25 @@ def document(request: Request, doc_id: int):
         return render(request, "document.html", doc=doc, groups=Q.grouped_tags(doc), related=Q.related(db, doc),
                       patterns=P.document_patterns(db, doc), episodes=EV.document_episodes(db, doc),
                       description_rest=description_remainder(doc.summary, doc.description),
-                      page_description=_meta_text(doc.summary or doc.description))
+                      page_description=_meta_text(lead_with_substance(doc.summary) or doc.description),
+                      all_pages=all == "1", page_chunk=PAGE_CHUNK)
+
+
+PAGE_CHUNK = 12  # pages of extracted text sent with the record page; the rest load on demand
+PAGE_FETCH_MAX = 200  # pages per on-demand request
+
+
+@app.get("/documents/{doc_id}/pages", response_class=HTMLResponse)
+def document_pages(request: Request, doc_id: int, start: int = Query(1, ge=1, alias="from"),
+                   end: int | None = Query(None, ge=1, alias="to")):
+    """A run of pages of extracted text, as HTML for the record page to append."""
+    end = min(end or start + PAGE_CHUNK - 1, start + PAGE_FETCH_MAX - 1)
+    with session_scope() as db:
+        doc = Q.document(db, doc_id)
+        if not doc:
+            raise HTTPException(404, "document not found")
+        pages = Q.document_pages(db, doc_id, start, end)
+        return render(request, "_pages.html", pages=pages)
 
 
 @app.get("/documents/{doc_id}/text.txt", response_class=PlainTextResponse)
@@ -472,6 +511,13 @@ def patterns_evidence(request: Request, feature: str | None = None, year: int | 
         ev = P.evidence(db, feature, year, place)
         return render(request, "evidence.html", ev=ev, page_title=P.evidence_title(ev),
                       page_description=P.evidence_description(ev))
+
+
+@app.get("/patterns/map", response_class=HTMLResponse)
+def patterns_map():
+    """The map of sighting accounts as an HTML fragment (see ``P.case_map``)."""
+    with session_scope() as db:
+        return HTMLResponse(str(P.case_map(db)))
 
 
 @app.get("/patterns/links", response_class=HTMLResponse)
@@ -562,7 +608,7 @@ def pipeline_page(request: Request):
         return render(
             request, "pipeline.html", runs=Q.runs(db), statuses=Q.status_counts(db), stats=Q.overview(db),
             problems=Q.problem_records(db),
-            settings=s, admin_enabled=bool(s.admin_token),
+            settings=s,
             analysis_at=computed.computed_at if computed else None,
             classifier=(f'{ {"anthropic": "Claude", "openai": "OpenAI"}[s.llm_provider] } ({s.llm_model})'
                         if s.llm_available else "keyword rules"),
@@ -607,9 +653,11 @@ def api_stats():
 @app.get("/api/documents")
 def api_documents(
     q: str | None = None, release: int | None = None, agency: str | None = None, media: str | None = None,
-    tag: list[str] = Query(default=[]), sort: str = "release", page: int = Query(1, ge=1),
+    tag: list[str] = Query(default=[]), sort: str | None = None, page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=200),
 ):
+    """``sort``: relevance (the default with ``q``), release (the default
+    without), incident, oldest, significance or pages."""
     with session_scope() as db:
         res = Q.search(db, q=q, release=release, agency=agency, media=media, tags=_parse_tags(tag),
                        sort=sort, page=page, per_page=per_page)
@@ -625,17 +673,72 @@ def api_document(doc_id: int):
         return _doc_json(doc, full=True)
 
 
-def _require_admin(authorization: str | None) -> None:
+_failed_auth: dict[str, list[float]] = {}
+_failed_lock = threading.Lock()
+AUTH_ATTEMPTS, AUTH_WINDOW = 10, 60.0  # wrong tokens per client per minute before a 429
+
+
+def _too_many_failures(client: str, record: bool = False) -> bool:
+    now = time.time()
+    with _failed_lock:
+        hits = [t for t in _failed_auth.get(client, []) if now - t < AUTH_WINDOW]
+        if record:
+            hits.append(now)
+        _failed_auth[client] = hits
+        return len(hits) >= AUTH_ATTEMPTS
+
+
+def _admin_ok(authorization: str | None, request: Request | None = None) -> bool:
+    """The admin token, sent as ``Bearer <token>`` (the API) or as the password
+    of HTTP Basic auth (the browser on /admin; any user name)."""
+    import base64
+    import secrets
+
     token = get_settings().admin_token
-    if not token or authorization != f"Bearer {token}":
-        raise HTTPException(401, "set ADMIN_TOKEN and send 'Authorization: Bearer <token>'")
+    client = request.client.host if request and request.client else "-"
+    if not token or not authorization or _too_many_failures(client):
+        return False
+    scheme, _, value = authorization.partition(" ")
+    given = value.strip()
+    if scheme.lower() == "basic":
+        try:
+            given = base64.b64decode(given).decode().partition(":")[2]
+        except (ValueError, UnicodeDecodeError):
+            given = ""
+    ok = secrets.compare_digest(given.encode(), token.encode())
+    if not ok:
+        _too_many_failures(client, record=True)
+    return ok
+
+
+def _require_admin(authorization: str | None, request: Request | None = None) -> None:
+    if _admin_ok(authorization, request):
+        return
+    client = request.client.host if request and request.client else "-"
+    if _too_many_failures(client):
+        raise HTTPException(429, "too many wrong tokens; wait a minute")
+    raise HTTPException(401, "admin token required", headers={"WWW-Authenticate": 'Basic realm="UFO Files admin"'})
+
+
+@app.get("/admin", response_class=HTMLResponse)
+def admin_page(request: Request, authorization: str | None = Header(default=None)):
+    """Run controls, behind the admin token (HTTP Basic auth: any user name,
+    the token as the password). Not linked from the site; 404 without a token."""
+    s = get_settings()
+    if not s.admin_token:
+        raise HTTPException(404)
+    _require_admin(authorization, request)
+    with session_scope() as db:
+        computed = db.get(AnalysisResult, "overview")
+        return render(request, "admin.html", runs=Q.runs(db, limit=5), settings=s,
+                      analysis_at=computed.computed_at if computed else None)
 
 
 @app.post("/api/analysis/run")
-def api_analyze(authorization: str | None = Header(default=None)):
+def api_analyze(request: Request, authorization: str | None = Header(default=None)):
     """Recompute the patterns (and LLM tagging of new passages) without
     checking sources. Refused while a pipeline run is in progress."""
-    _require_admin(authorization)
+    _require_admin(authorization, request)
     from ..pipeline import _local_lock, run_analysis_only
 
     if _local_lock.locked():
@@ -646,8 +749,8 @@ def api_analyze(authorization: str | None = Header(default=None)):
 
 
 @app.post("/api/pipeline/run")
-def api_run(authorization: str | None = Header(default=None)):
-    _require_admin(authorization)
+def api_run(request: Request, authorization: str | None = Header(default=None)):
+    _require_admin(authorization, request)
     from ..pipeline import run_pipeline
 
     threading.Thread(target=run_pipeline, kwargs={"trigger": "api"}, daemon=True).start()
@@ -657,7 +760,7 @@ def api_run(authorization: str | None = Header(default=None)):
 @app.get("/robots.txt", response_class=PlainTextResponse)
 def robots(request: Request):
     base = str(request.base_url).rstrip("/")
-    return "\n".join(["User-agent: *", "Allow: /", "Disallow: /api/", "Disallow: /pipeline",
+    return "\n".join(["User-agent: *", "Allow: /", "Disallow: /api/", "Disallow: /pipeline", "Disallow: /admin",
                       f"Sitemap: {base}/sitemap.xml", ""])
 
 

@@ -469,6 +469,27 @@ def _queue_llm_classification(rlog: RunLog) -> None:
     rlog("re-classifying %d records %s", len(ids), why)
 
 
+def reconcile_assessments(rlog: RunLog | None = None) -> int:
+    """Records whose title states "Unresolved" but carry no assessment get
+    one, without re-running the classifier. Returns how many changed."""
+    from .classify import assessment_from_title
+
+    n = 0
+    with session_scope() as db:
+        for doc in db.scalars(select(Document).where(Document.assessment == "not_assessed",
+                                                     Document.title.ilike("%unresolved%"))):
+            fixed = assessment_from_title(doc.title, doc.assessment)
+            if fixed == doc.assessment:
+                continue
+            doc.assessment = fixed
+            db.execute(delete(Tag).where(Tag.document_id == doc.id, Tag.facet == "assessment"))
+            db.add(Tag(document_id=doc.id, facet="assessment", value=fixed))
+            n += 1
+    if n and rlog:
+        rlog("set the assessment of %d records whose title says unresolved", n)
+    return n
+
+
 def run_analysis_step(rlog: RunLog) -> None:
     """Look for connections across all records (waves, recurring details,
     sighting types, links). Failures here never fail the run."""
@@ -585,7 +606,8 @@ def run_pipeline(trigger: str = "manual", sources: list[str] | None = None, limi
                     log.exception("source %s failed", source.name)
             _queue_llm_classification(rlog)
             processed, failed = process_pending(rlog, limit=limit, bundles=bundles)
-            if processed or new or updated or not _analysis_exists() or _analysis_outdated():
+            reconciled = reconcile_assessments(rlog)
+            if processed or new or updated or reconciled or not _analysis_exists() or _analysis_outdated():
                 run_analysis_step(rlog)
         except Exception as exc:
             status = "error"

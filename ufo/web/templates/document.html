@@ -10,7 +10,7 @@
     {% if doc.summary %}
     <div class="card" style="margin: 14px 0">
       <h2>Summary <small>{{ 'written by ' ~ doc.classifier if doc.classifier and doc.classifier != 'rules' else "publisher's description" }}</small></h2>
-      <p>{{ doc.summary }}</p>
+      <p>{{ lead(doc.summary) }}</p>
       {% if description_rest %}
       <details class="page-text inline">
         <summary>Read the rest of the publisher's description</summary>
@@ -107,14 +107,51 @@
       <span class="muted small">{{ doc.page_count }} page{{ 's' if doc.page_count != 1 }}{% if doc.ocr_page_count %} · {{ doc.ocr_page_count }} read with OCR (avg. confidence {{ doc.ocr_confidence }}%){% endif %}</span>
       <a class="small" href="/documents/{{ doc.id }}/text.txt">Download .txt</a>
     </div>
-    <div class="reader" tabindex="0" aria-label="Extracted text, page by page">
-      {% for p in doc.pages %}
-      <section class="reader-page" id="p{{ p.page_no }}">
-        <div class="reader-page-head"><a href="#p{{ p.page_no }}">Page {{ p.page_no }}</a>
-          {% if p.method == 'ocr' %}<span class="badge ocr" title="Text recognised from a scanned image">OCR {{ p.confidence }}%</span>{% elif p.method == 'empty' %}<span class="badge">no text</span>{% endif %}</div>
-        <pre>{{ p.text or '(no readable text on this page)' }}</pre>
-      </section>
-      {% endfor %}
+    {% set shown = doc.pages if all_pages else doc.pages[:page_chunk] %}
+    {% set last = doc.pages[-1].page_no if doc.pages else 0 %}
+    <div class="reader" tabindex="0" aria-label="Extracted text, page by page" id="reader" data-doc="{{ doc.id }}" data-loaded="{{ shown[-1].page_no if shown else 0 }}" data-last="{{ last }}" data-chunk="{{ page_chunk }}">
+      {% with pages=shown %}{% include "_pages.html" %}{% endwith %}
+      {% if shown | length < doc.pages | length %}
+      <div class="reader-more" id="reader-more">
+        <a class="btn ghost" id="reader-more-btn" href="{{ url('/documents/' ~ doc.id, all=1) }}#p{{ shown[-1].page_no + 1 }}">Show pages {{ shown[-1].page_no + 1 }}–{{ [shown[-1].page_no + page_chunk, last] | min }}</a>
+        <a class="small" href="{{ url('/documents/' ~ doc.id, all=1) }}#p{{ shown[-1].page_no + 1 }}">Show all {{ doc.pages | length }} pages</a>
+        <span class="muted small">Pages load as you ask for them, so long files stay light on a phone.</span>
+      </div>
+      <script>
+      (function () {
+        var reader = document.getElementById('reader'), more = document.getElementById('reader-more'),
+            btn = document.getElementById('reader-more-btn'), loading = false;
+        var loaded = +reader.dataset.loaded, last = +reader.dataset.last, chunk = +reader.dataset.chunk;
+        function label() {
+          if (loaded >= last) { more.remove(); return; }
+          btn.textContent = 'Show pages ' + (loaded + 1) + '–' + Math.min(loaded + chunk, last);
+          btn.href = '/documents/' + reader.dataset.doc + '?all=1#p' + (loaded + 1);
+        }
+        function load(to, then) {
+          if (loading || loaded >= last) return;
+          loading = true; btn.textContent = 'Loading…';
+          fetch('/documents/' + reader.dataset.doc + '/pages?from=' + (loaded + 1) + '&to=' + to)
+            .then(function (r) { return r.ok ? r.text() : Promise.reject(r.status); })
+            .then(function (html) {
+              more.insertAdjacentHTML('beforebegin', html);
+              loaded = Math.min(to, last); loading = false; label();
+              if (then) then();
+            })
+            .catch(function () { loading = false; label(); });
+        }
+        btn.addEventListener('click', function (e) { e.preventDefault(); load(loaded + chunk); });
+        // a link straight to a later page (#p57) fetches up to that page first
+        function jump() {
+          var m = /^#p(\d+)$/.exec(location.hash);
+          if (!m) return;
+          var n = +m[1];
+          if (n > loaded && n <= last) load(n, function () { var el = document.getElementById('p' + n); if (el) el.scrollIntoView(); });
+        }
+        window.addEventListener('hashchange', jump);
+        jump();
+      })();
+      </script>
+      {% endif %}
     </div>
     {% elif doc.media_type == 'pdf' %}
       {% if doc.status == 'unavailable' %}
@@ -135,8 +172,12 @@
       <dl class="kv">
         <dt>Agency</dt><dd>{{ doc.agency or '—' }}</dd>
         <dt>Released</dt><dd>{{ doc.release.release_date | d if doc.release else '—' }}</dd>
-        <dt>{{ date_label(doc.document_kind, doc.title, doc.media_type) }}</dt><dd>{{ incident_date(doc.incident_date_raw, doc.incident_date, doc.incident_year) }}</dd>
+        <dt>{{ date_label(doc.document_kind, doc.title, doc.media_type) }}</dt><dd>{{ incident_date(doc.incident_date_raw, doc.incident_date, doc.incident_year) }}{% set note = date_note(doc.title, doc.incident_year) %}{% if note %} <span class="muted small" title="The published date and the title disagree; the title's year may be the right one.">({{ note }})</span>{% endif %}</dd>
+        {% if is_research(doc.document_kind, doc.title) %}
+        <dt>Listed location</dt><dd>{{ doc.incident_location or '—' }}{% if doc.incident_location %} <span class="muted small">(the publisher's address for this paper, not a sighting)</span>{% endif %}</dd>
+        {% else %}
         <dt>Location</dt><dd>{{ doc.incident_location or '—' }}</dd>
+        {% endif %}
         {% if doc.page_count %}<dt>Pages</dt><dd>{{ doc.page_count }}{% if doc.ocr_page_count %} ({{ doc.ocr_page_count }} OCR){% endif %}</dd>{% endif %}
         <dt>Original</dt><dd>{% if doc.file_url %}<a href="{{ doc.file_url }}" rel="noopener">{{ 'Watch on DVIDS' if doc.media_type in ('video', 'audio') else 'Open file' }} ↗</a>{% else %}—{% endif %}</dd>
         {% if doc.fetched_via == 'wayback' and doc.file_url %}<dt>Archived copy</dt><dd><a href="https://web.archive.org/web/2026/{{ doc.file_url }}" rel="noopener">Wayback Machine ↗</a></dd>{% endif %}

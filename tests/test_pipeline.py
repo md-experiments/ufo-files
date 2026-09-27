@@ -392,6 +392,18 @@ def test_analysis_stage_and_patterns_pages(fake):
             for _, _, feats in patterns_context(db)["groups"]:
                 assert [f["records"] for f in feats] == sorted((f["records"] for f in feats), reverse=True)
         assert "sighting pages in" in page and "rec.</small>" in page
+        # the map of accounts is fetched separately, so the page itself stays light
+        assert 'id="casemap-slot" data-src="/patterns/map"' in page and 'class="chart casemap' not in page
+        frag = client.get("/patterns/map")
+        assert frag.status_code == 200 and 'class="chart casemap"' in frag.text and 'class="chart casemap narrow"' in frag.text
+        assert frag.text.count("<title>") < frag.text.count("<circle") // 2 + 20  # the phone copy carries no tooltips
+        # detail spans say what they measure; the partial-year note only applies when the last
+        # bar is the release year (here the newest dated report is 2023, released in 2026)
+        assert "mentions 19" in page and "is a partial year" not in page
+        with session_scope() as db:
+            from ufo.web.patterns import patterns_context
+            ctx = patterns_context(db)
+            assert ctx["partial_year"] is None and ctx["latest_release"] == date(2026, 5, 22)
         cmp = client.get("/patterns/compare?a=1&b=2")
         assert cmp.status_code == 200, cmp.text[-800:]
         assert "Matching accounts" in cmp.text
@@ -444,10 +456,92 @@ def test_admin_endpoints_need_token(fake, monkeypatch):
     monkeypatch.setattr(pipeline, "run_analysis_only", lambda trigger: None)
     with TestClient(app) as client:
         assert client.post("/api/analysis/run").status_code == 401
+        assert client.get("/admin").status_code == 404  # no token configured: the page does not exist
+        assert client.get("/docs").status_code == 404 and client.get("/openapi.json").status_code == 404
         monkeypatch.setenv("ADMIN_TOKEN", "t0k")
         config.reset_settings()
         assert client.post("/api/analysis/run", headers={"Authorization": "Bearer nope"}).status_code == 401
         assert client.post("/api/analysis/run", headers={"Authorization": "Bearer t0k"}).status_code == 202
+        # the admin page asks the browser for the token as a password, and takes it that way for the API too
+        r = client.get("/admin")
+        assert r.status_code == 401 and r.headers["www-authenticate"].startswith("Basic")
+        assert client.get("/admin", auth=("anyone", "nope")).status_code == 401
+        page = client.get("/admin", auth=("anyone", "t0k"))
+        assert page.status_code == 200 and "Run pipeline" in page.text and "t0k" not in page.text
+        assert client.post("/api/analysis/run", auth=("anyone", "t0k")).status_code == 202
+        # the public pipeline page carries no run controls and does not say where the secret lives
+        public = client.get("/pipeline").text
+        assert "Run pipeline" not in public and "ADMIN_TOKEN" not in public and "admin-token" not in public
+        assert "Disallow: /admin" in client.get("/robots.txt").text
+        # guessing is throttled
+        for _ in range(10):
+            client.post("/api/analysis/run", headers={"Authorization": "Bearer wrong"})
+        assert client.post("/api/analysis/run", headers={"Authorization": "Bearer t0k"}).status_code == 429
+        from ufo.web import app as webapp
+
+        webapp._failed_auth.clear()
+        assert client.post("/api/analysis/run", headers={"Authorization": "Bearer t0k"}).status_code == 202
+
+
+def test_search_ranks_by_match_and_tries_spellings(fake):
+    from fastapi.testclient import TestClient
+
+    files, tmp = fake
+    files["https://example.gov/T1.pdf"] = make_pdf(tmp / "t1.pdf", ["Pilots described a white tic tac shape over the water."])
+    files["https://example.gov/T2.pdf"] = make_pdf(tmp / "t2.pdf", ["A memo. Roswell is mentioned once in passing here."])
+    FakeSource.records = [
+        rec("T1", date(2026, 5, 8), url="https://example.gov/T1.pdf", desc="A Navy encounter with an oval object."),
+        rec("T2", date(2026, 5, 22), url="https://example.gov/T2.pdf", desc="Correspondence about a base."),
+        rec("T3", date(2026, 5, 22), media="video", url=None, desc="Footage from Roswell, New Mexico."),
+    ]
+    pipeline.run_pipeline()
+
+    from ufo.web.app import app
+
+    with TestClient(app) as client:
+        # with a term, best match first: the description hit outranks the one buried in the text,
+        # whatever the release order; the sort menu offers it, and can be overridden
+        r = client.get("/api/documents?q=roswell").json()
+        assert [d["record_id"] for d in r["items"]] == ["T3", "T2"]
+        assert [d["record_id"] for d in client.get("/api/documents?q=roswell&sort=release").json()["items"]] == ["T2", "T3"]
+        page = client.get("/documents?q=roswell").text
+        assert '<option value="relevance" selected>Best match</option>' in page
+        assert page.index("T3, Report") < page.index("T2, Report")
+        assert "In text: " in page and "<mark>Roswell</mark>" in page  # where the term occurs
+        assert 'value="relevance"' not in client.get("/documents").text
+        # spellings: tictac, tic-tac and tic tac are one search, and the match is marked
+        for q in ("tictac", "tic-tac", "tic tac", "Tic Tac"):
+            assert client.get(f"/api/documents?q={q}").json()["total"] == 1, q
+        assert "<mark>tic tac</mark>" in client.get("/documents?q=tictac").text
+        # a search that finds nothing says so, as a search
+        empty = client.get("/documents?q=zzzqqq").text
+        assert "Nothing in the files matches “zzzqqq”" in empty and "No records match these filters" not in empty
+        assert "No records match these filters" in client.get("/documents?agency=Nobody").text
+
+
+def test_record_text_loads_in_chunks(fake):
+    from fastapi.testclient import TestClient
+
+    files, tmp = fake
+    files["https://example.gov/L1.pdf"] = make_pdf(tmp / "l1.pdf", [f"Page {i} of a long personnel file." for i in range(1, 31)])
+    FakeSource.records = [rec("L1", date(2026, 5, 8), url="https://example.gov/L1.pdf")]
+    pipeline.run_pipeline()
+
+    from ufo.web.app import PAGE_CHUNK, app
+
+    with TestClient(app) as client:
+        page = client.get("/documents/1").text
+        assert 'id="p1"' in page and f'id="p{PAGE_CHUNK}"' in page and f'id="p{PAGE_CHUNK + 1}"' not in page
+        assert f"Show pages {PAGE_CHUNK + 1}–{2 * PAGE_CHUNK}" in page and "Show all 30 pages" in page
+        assert 'href="/documents/1?all=1#p13"' in page  # works without script too
+        everything = client.get("/documents/1?all=1").text
+        assert 'id="p30"' in everything and "Show pages" not in everything
+        frag = client.get(f"/documents/1/pages?from={PAGE_CHUNK + 1}&to={PAGE_CHUNK + 3}")
+        assert frag.status_code == 200 and frag.text.count('class="reader-page"') == 3
+        assert f'id="p{PAGE_CHUNK + 1}"' in frag.text and "<html" not in frag.text
+        assert client.get("/documents/1/pages?from=29").text.count('class="reader-page"') == 2  # to the end
+        assert client.get("/documents/999/pages?from=1").status_code == 404
+        assert client.get("/documents/1/pages?from=0").status_code == 400
 
 
 def test_llm_classification_runs_in_parallel(fake, monkeypatch):
@@ -455,7 +549,9 @@ def test_llm_classification_runs_in_parallel(fake, monkeypatch):
 
     from ufo import config
 
-    for k, v in {"OPENAI_API_KEY": "x", "LLM_ENABLED": "true", "LLM_WORKERS": "4", "LLM_TAGGING": "false"}.items():
+    # only classification is timed here: tagging and episode reading would call the API with the fake key
+    for k, v in {"OPENAI_API_KEY": "x", "LLM_ENABLED": "true", "LLM_WORKERS": "4", "LLM_TAGGING": "false",
+                 "LLM_EPISODES": "false"}.items():
         monkeypatch.setenv(k, v)
     config.reset_settings()
     calls = []

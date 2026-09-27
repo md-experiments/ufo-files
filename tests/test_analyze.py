@@ -1,7 +1,7 @@
 from datetime import date
 
 from ufo.analyze.dates import find_dates
-from ufo.analyze.features import find_observables, is_sighting_text
+from ufo.analyze.features import anachronistic, find_observables, is_sighting_text
 from ufo.analyze.places import find_places, location_places
 
 
@@ -311,3 +311,53 @@ def test_derived_verdicts_fill_gaps_and_are_marked():
     assert stated["overview"]["explained"] == 0 and stated["overview"]["not_assessed"] == 3
     assert stated["overview"]["derived"] == {} and stated["overview"]["derivable"] == 3  # still listed, not used
     assert stated["accounts"]["n"] == 0
+
+
+def test_silence_with_an_exception_is_not_silent():
+    text = "(5) Normally no associated sound, except in three instances a substantial rumbling roar was noted."
+    k = keys(text)
+    assert "silent" not in k and "hum" in k  # the roar counts, the silence does not
+    assert "silent" in keys("The object made no sound. It was seen for three minutes.")
+    assert "silent" in keys("No sound was heard, and the object left no trail.")
+    from ufo.analyze.events import tag_account
+
+    tags = tag_account("The disc hovered. Normally no associated sound, except in three instances a rumbling roar.")[0]
+    assert "roar" in tags and "silent" not in tags
+
+
+def test_sensors_before_their_time_are_not_observations():
+    assert anachronistic("infrared", 1954) and not anachronistic("infrared", 1966) and not anachronistic("infrared", None)
+    assert not anachronistic("radar", 1947)
+
+
+def test_research_pages_need_a_stronger_sighting_signal():
+    from ufo.analyze.features import RESEARCH_MIN_HITS, is_research_record
+
+    review = ("Witnesses in the literature report objects and lights; one observer saw an object at altitude. "
+              "This review of field effects on tissue cites reported cases.")
+    assert is_sighting_text(review) and not is_sighting_text(review, RESEARCH_MIN_HITS)
+    assert is_research_record("analysis", "AAWSAP DIRD, Field Effects on Biological Tissues")
+
+
+def test_types_never_include_contradictory_accounts():
+    from ufo.analyze.signatures import Acc, contradicts, sighting_types, tag_weights
+
+    assert contradicts(["silent", "high_speed"], ["silent", "roar", "high_speed"])
+    assert not contradicts(["silent", "high_speed"], ["silent", "high_speed", "hover"])
+    accs = [Acc(i, doc, 1, tags) for i, (doc, tags) in enumerate([
+        (1, ["disc", "silent", "high_speed"]), (2, ["disc", "silent", "high_speed"]), (3, ["disc", "silent", "high_speed"]),
+        (4, ["disc", "silent", "high_speed", "roar"]),  # says both: never a member of a "silent" type
+        (5, ["sphere", "glow", "hover"]), (6, ["sphere", "glow", "hover"]), (7, ["cigar", "trail"]),
+    ])]
+    types = sighting_types(accs, tag_weights(accs), min_accounts=3, min_records=3)
+    silent = [t for t in types if "silent" in t["signature"]]
+    assert silent and 3 not in silent[0]["accounts"]
+
+
+def test_readability_ranks_ocr_noise_last():
+    from ufo.analyze.text import is_readable, readability
+
+    garbled = "ll),.,O 1 24-o.:l57 ... 3 Jul.f 1952, STlNfl nn4 00.SH 'ltcre aeparatol_y intvnettod by Spooial ,igent JUUUS o. roP.?lNGA"
+    clean = "On July 7, 1947 witnesses observed a silver disc hovering silently over Roswell, New Mexico."
+    assert readability(clean) > 0.9 > readability(garbled)
+    assert is_readable(clean) and not is_readable(garbled) and not is_readable("")

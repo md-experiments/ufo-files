@@ -15,6 +15,7 @@ from pathlib import Path
 from sqlalchemy import func, select
 
 from .db import Document, Page, Release, Tag, init_db, session_scope
+from .sources.clean import clean_title, normalize_location
 
 log = logging.getLogger(__name__)
 
@@ -93,6 +94,9 @@ def import_seed(path: Path, only_if_empty: bool = True) -> int:
                 item[f] = _date(item[f])
             for f in ("first_seen_at", "processed_at"):
                 item[f] = _dt(item[f])
+            # the snapshot may predate the metadata tidying the parser now does
+            item["title"] = clean_title(item.get("title") or "")
+            item["incident_location"] = normalize_location(item.get("incident_location"))
             doc = Document(**item)
             doc.release = releases.get((item["source"], rel_date))
             doc.pages = [Page(page_no=p[0], method=p[1], confidence=p[2], text=p[3]) for p in pages]

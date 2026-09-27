@@ -10,22 +10,32 @@ from ..db import Account, Document, Mention, Observation, has_classification
 from .dates import find_dates
 from .events import candidates_for, keep
 from .llm_tags import refine, tagger_id
-from .features import find_observables, is_sighting_text
+from .features import (NON_SIGHTING_KINDS, RESEARCH_MIN_HITS, SIGHTING_MIN_HITS, anachronistic, find_observables,
+                       is_research_record, is_sighting_text)
 from .places import find_places, location_places
 from .redaction import find_redactions
 from .verdicts import find_verdicts
 
-# research papers and contracts: their pages are analysed only when they read
-# like sighting accounts, and their own dates/places are not sighting dates
-NON_SIGHTING_KINDS = {"scientific_study", "administrative"}
+__all__ = ["NON_SIGHTING_KINDS", "extract_all", "extract_document", "is_research", "units"]
+
+
+def is_research(doc: Document) -> bool:
+    """Research papers and contracts: their pages are analysed only when they
+    read strongly like sighting accounts, and their own description, dates
+    and places (a contractor's address) are not sighting evidence."""
+    return is_research_record(doc.document_kind, doc.title)
 
 
 def units(doc: Document) -> list[tuple[int, str]]:
     """The texts to analyse: each page, plus the publisher description (page 0)."""
     out = [(p.page_no, p.text or "") for p in doc.pages]
-    if doc.description and doc.document_kind not in NON_SIGHTING_KINDS:
+    if doc.description and not is_research(doc):
         out.append((0, doc.description))
     return out
+
+
+def sighting_min_hits(doc: Document) -> int:
+    return RESEARCH_MIN_HITS if is_research(doc) else SIGHTING_MIN_HITS
 
 
 def extract_document(db: Session, doc: Document) -> tuple[int, int]:
@@ -40,26 +50,34 @@ def extract_document(db: Session, doc: Document) -> tuple[int, int]:
         for code in find_redactions(p.text or ""):
             db.add(Mention(document_id=doc.id, page_no=p.page_no, kind="redaction", value=code))
     sighting_units = n_obs = 0
+    research = is_research(doc)
+    min_hits = sighting_min_hits(doc)
     for page_no, text in units(doc):
         # the publisher's own description is always about the sighting
-        if page_no != 0 and not is_sighting_text(text):
+        if page_no != 0 and not is_sighting_text(text, min_hits):
             continue
         sighting_units += 1
+        dates = find_dates(text, max_date=max_date) if page_no != 0 else []
+        # the page's own year decides whether a sensor could have existed
+        years = sorted(d.year for d, _ in dates)
+        page_year = years[len(years) // 2] if years else doc.incident_year
         for hit in find_observables(text):
+            if anachronistic(hit.key, page_year):
+                continue
             db.add(Observation(document_id=doc.id, page_no=page_no, feature=hit.key, snippet=hit.snippet))
             n_obs += 1
-        if page_no != 0 and doc.document_kind not in NON_SIGHTING_KINDS:
+        if page_no != 0 and not research:
             # verdicts the file itself states (the publisher's description already sets the assessment)
             for v in find_verdicts(text):
                 db.add(Mention(document_id=doc.id, page_no=page_no, kind="verdict", value=v.category,
                                precision="strong" if v.strong else "hedged"))
         if page_no != 0:
-            for d, precision in find_dates(text, max_date=max_date):
+            for d, precision in dates:
                 db.add(Mention(document_id=doc.id, page_no=page_no, kind="date", value=d.isoformat(), precision=precision))
             for place in find_places(text):
                 db.add(Mention(document_id=doc.id, page_no=page_no, kind="place", value=place))
     # the record's own metadata, when the publisher gives it
-    if doc.document_kind in NON_SIGHTING_KINDS:
+    if research:
         return sighting_units, n_obs
     if doc.incident_date:
         db.add(Mention(document_id=doc.id, page_no=0, kind="date", value=doc.incident_date.isoformat(), precision="day"))
@@ -78,7 +96,7 @@ def extract_all(db: Session, progress=None) -> dict:
     ).all()
     # candidate sighting accounts first: an LLM (when configured) re-reads them,
     # saving its tags as it goes, before this session writes anything
-    candidates = [(doc.id, a) for doc in docs for a in candidates_for(units(doc))]
+    candidates = [(doc.id, a) for doc in docs for a in candidates_for(units(doc), min_hits=sighting_min_hits(doc))]
     tagging = refine([a for _, a in candidates], progress)
     totals = {"documents": 0, "sighting_units": 0, "observations": 0, "tagging": tagging, "tagger": tagger_id()}
     for doc in docs:

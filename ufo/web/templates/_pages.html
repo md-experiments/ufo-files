@@ -1,0 +1,7 @@
+{% for p in pages %}
+<section class="reader-page" id="p{{ p.page_no }}">
+  <div class="reader-page-head"><a href="#p{{ p.page_no }}">Page {{ p.page_no }}</a>
+    {% if p.method == 'ocr' %}<span class="badge ocr" title="Text recognised from a scanned image">OCR {{ p.confidence }}%</span>{% elif p.method == 'empty' %}<span class="badge">no text</span>{% endif %}</div>
+  <pre>{{ p.text or '(no readable text on this page)' }}</pre>
+</section>
+{% endfor %}

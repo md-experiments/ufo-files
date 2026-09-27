@@ -24,7 +24,7 @@
   <div class="tile"><div class="v">{{ stats.records | n }}</div><div class="k">Records</div><div class="s">documents, videos, images, audio</div></div>
   <div class="tile"><div class="v">{{ stats.pages | n }}</div><div class="k">Pages read</div><div class="s">across {{ stats.documents | n }} PDFs</div></div>
   <div class="tile"><div class="v">{{ stats.ocr_pages | n }}</div><div class="k">Pages OCR'd</div><div class="s">scanned without a text layer</div></div>
-  <div class="tile"><div class="v">{% if stats.oldest_year %}{{ stats.oldest_year }}–{{ stats.newest_year }}{% else %}—{% endif %}</div><div class="k">Incidents span</div><div class="s">{{ stats.agencies }} agencies</div></div>
+  <div class="tile"><div class="v">{% if stats.oldest_year %}{{ stats.oldest_year }}–{{ stats.newest_year }}{% else %}—{% endif %}</div><div class="k">Incidents span</div><div class="s">by published incident date · {{ stats.agencies }} agencies</div></div>
 </section>
 
 {% if latest %}

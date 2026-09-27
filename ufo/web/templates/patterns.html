@@ -113,7 +113,7 @@
 
 <section class="section card" id="waves">
   <h2>When reports bunch up <small>sighting pages per year</small></h2>
-  <p class="secondary small">Each bar counts sighting pages mentioning a date in that year. A page that mentions several months is split between them, and modern records count at their published incident date. <span class="legend-inline"><i class="sw hot"></i>Shaded years are <strong>waves</strong>: at least 2.5× the level of the surrounding two decades.</span> Click a bar to read the pages.</p>
+  <p class="secondary small">Each bar counts sighting pages mentioning a date in that year (dates before 1940 are treated as file numbers and OCR noise, so the chart starts there even though the home page's incident span uses the publisher's dates). A page that mentions several months is split between them, and modern records count at their published incident date.{% if p.partial_year %} The last bar, {{ p.partial_year }}, is a partial year: it covers records released up to {{ p.latest_release | d }}.{% endif %} <span class="legend-inline"><i class="sw hot"></i>Shaded years are <strong>waves</strong>: at least 2.5× the level of the surrounding two decades.</span> Click a bar to read the pages.</p>
   <div class="scroll-x">{{ p.timeline_svg }}</div>
 </section>
 
@@ -151,7 +151,7 @@
       <span class="detail-group">{{ glabel }}</span>
       <span class="detail-head"><span class="detail-name">{{ f.label }}</span><span class="detail-n" title="{{ f.records }} record{{ 's' if f.records != 1 }}">{{ f.records }} <small>rec.</small></span></span>
       <span class="detail-foot">{{ p.sparks[f.key] }}</span>
-      <span class="detail-meta">{{ f.records }} record{{ 's' if f.records != 1 }} · {{ f.pages }} page{{ 's' if f.pages != 1 }}{% if f.first_year %} · {{ f.first_year }}{% if f.last_year != f.first_year %}–{{ f.last_year }}{% endif %}{% endif %}</span>
+      <span class="detail-meta">{{ f.records }} record{{ 's' if f.records != 1 }} · {{ f.pages }} page{{ 's' if f.pages != 1 }}{% if f.first_year %} · <span title="Years the pages mention, not the publisher's incident dates">mentions {{ f.first_year }}{% if f.last_year != f.first_year %}–{{ f.last_year }}{% endif %}</span>{% endif %}</span>
     </a>
     {% endfor %}{% endfor %}
   </div>
@@ -222,7 +222,9 @@
 <section class="section card" id="clusters">
   <h2>Sighting types <small>map of {{ p.accounts | n }} sighting accounts</small></h2>
   <p class="secondary small">Each sighting page is cut into accounts (paragraphs, or one report form), and each account is tagged with what was observed: shape, colour, light, sound, movement, visible structure, effects on people, machines or the ground. A sighting type is a combination of details that recurs across records far more often than chance would give. Agency, archive series, place, decade and wording play no part. Every dot is one account, placed near accounts that describe similar events. Numbered circles mark types. Hover or tap a card to highlight its accounts, or click a dot to read it.</p>
-  <div class="scroll-x">{{ p.case_map }}</div>
+  <div class="scroll-x casemap-slot" id="casemap-slot" data-src="/patterns/map">
+    <p class="muted small">Loading the map of {{ p.map_points | n }} accounts… <noscript><a href="/patterns/map">Open the map on its own.</a></noscript></p>
+  </div>
 </section>
 <div class="cluster-grid">
   {% for c in p.clusters[:16] %}
@@ -432,17 +434,37 @@
 <script>
 // highlight a cluster's records on the map when its card or badge is hovered
 (function () {
-  var maps = document.querySelectorAll('.casemap');
-  if (!maps.length) return;
+  var maps = [];  // filled once the map fragment arrives
   function on(c) { maps.forEach(function (svg) { svg.classList.add('focus'); svg.querySelectorAll('[data-c="' + c + '"]').forEach(function (el) { el.classList.add('hl'); }); }); }
   function off() { maps.forEach(function (svg) { svg.classList.remove('focus'); svg.querySelectorAll('.hl').forEach(function (el) { el.classList.remove('hl'); }); }); }
-  document.querySelectorAll('.cluster[data-c], .casemap .badge').forEach(function (el) {
+  function bind(el) {
     var c = el.getAttribute('data-c');
     el.addEventListener('mouseenter', function () { on(c); });
     el.addEventListener('focus', function () { on(c); });
     el.addEventListener('mouseleave', off);
     el.addEventListener('blur', off);
-  });
+  }
+  document.querySelectorAll('.cluster[data-c]').forEach(bind);
+  // the map is fetched when it comes into view (it weighs more than the rest of the page)
+  var slot = document.getElementById('casemap-slot');
+  function loadMap() {
+    fetch(slot.getAttribute('data-src'))
+      .then(function (r) { return r.ok ? r.text() : Promise.reject(r.status); })
+      .then(function (html) {
+        slot.innerHTML = html;
+        maps = Array.prototype.slice.call(slot.querySelectorAll('.casemap'));
+        slot.querySelectorAll('.casemap .badge').forEach(bind);
+      })
+      .catch(function () { slot.innerHTML = '<p class="muted small">The map could not be loaded. <a href="' + slot.getAttribute('data-src') + '">Open it on its own.</a></p>'; });
+  }
+  if (slot) {
+    if ('IntersectionObserver' in window) {
+      var io = new IntersectionObserver(function (entries) {
+        if (entries.some(function (e) { return e.isIntersecting; })) { io.disconnect(); loadMap(); }
+      }, { rootMargin: '400px' });
+      io.observe(slot);
+    } else { loadMap(); }
+  }
 })();
 </script>
 {% endif %}

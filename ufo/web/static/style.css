@@ -242,6 +242,7 @@ button, .btn { font: inherit; font-size: .9rem; border: 1px solid var(--border);
 .reader-head h2 { margin: 0; }
 .reader { background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius); max-height: 78vh; overflow: auto; }
 .reader-page + .reader-page { border-top: 1px dashed var(--border); }
+.reader-more { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 14px 16px; border-top: 1px solid var(--grid); }
 .reader-page-head { position: sticky; top: 0; background: var(--surface-1); padding: 8px 16px; display: flex; gap: 10px; align-items: center; font-size: .82rem; border-bottom: 1px solid var(--grid); }
 .reader-page-head a { color: var(--text-secondary); font-weight: 600; }
 .reader-page pre { margin: 0; padding: 10px 16px 16px; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono); font-size: .8rem; line-height: 1.55; color: var(--text-secondary); }
@@ -309,8 +310,9 @@ pre.log { font-family: var(--mono); font-size: .75rem; white-space: pre-wrap; ov
 .chart .pt.in { fill: var(--series-1); fill-opacity: .6; }
 .chart .pt:hover { fill-opacity: 1; }
 .casemap.focus .pt { fill-opacity: .12; }
-.casemap.focus .pt.hl { fill: var(--hot); fill-opacity: 1; r: 7; }
-.casemap.narrow.focus .pt.hl { r: 4.5; }
+.casemap.focus .pt.hl { fill: var(--hot); fill-opacity: 1; r: 7px; }
+.casemap.narrow.focus .pt.hl { r: 4.5px; }
+.casemap-slot { min-height: 240px; }
 .chart .badge circle { fill: var(--surface-1); stroke: var(--text-primary); stroke-width: 1.5; cursor: pointer; }
 .chart .badge text { fill: var(--text-primary); font-size: 12px; font-weight: 700; pointer-events: none; }
 .chart .badge.hl circle { fill: var(--hot); stroke: var(--hot); }

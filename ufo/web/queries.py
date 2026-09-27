@@ -1,6 +1,7 @@
 """Read-side queries used by the web app and JSON API."""
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from sqlalchemy import and_, case, distinct, func, or_, select
@@ -89,10 +90,19 @@ def era_counts(db: Session) -> list[dict]:
     return [{"value": k, "label": k, "n": rows.get(k, 0)} for k in FACETS["era"]]
 
 
+def not_research():
+    """Records whose published location is where something was seen, not a
+    contractor's office: research papers and paperwork are left out."""
+    from ..analyze.features import NON_SIGHTING_KINDS
+
+    return and_(or_(Document.document_kind.is_(None), Document.document_kind.not_in(NON_SIGHTING_KINDS)),
+                ~Document.title.ilike("%DIRD%"), ~Document.title.ilike("%literature review%"))
+
+
 def top_locations(db: Session, limit: int = 12) -> list[dict]:
     q = (
         select(Document.incident_location, func.count())
-        .where(Document.incident_location.is_not(None))
+        .where(Document.incident_location.is_not(None), not_research())
         .group_by(Document.incident_location)
         .order_by(func.count().desc())
         .limit(limit)
@@ -129,6 +139,29 @@ class SearchResult:
         return max(1, -(-self.total // self.per_page))
 
 
+# spellings people type for terms the files write one way
+COMPOUNDS = {"tictac": "tic tac", "tic-tac": "tic tac", "bluebook": "blue book", "blue-book": "blue book",
+             "flyingsaucer": "flying saucer", "uaps": "uap", "ufos": "ufo", "usos": "uso"}
+
+
+def query_variants(q: str | None) -> list[str]:
+    """The forms a search term is tried in: as typed, then with the spaces and
+    hyphens joined, spaced and hyphenated ("tic tac", "tictac", "tic-tac")."""
+    q = re.sub(r"\s+", " ", (q or "").strip())
+    if not q:
+        return []
+    out = [q]
+    base = COMPOUNDS.get(q.lower(), q)
+    for form in (base, re.sub(r"[\s-]+", " ", base), re.sub(r"[\s-]+", "", base), re.sub(r"[\s-]+", "-", base)):
+        if form and form.lower() not in {v.lower() for v in out}:
+            out.append(form)
+    return out
+
+
+# how much a match in each field says about the record
+RANK_FIELDS = (("title", 10), ("record_id", 8), ("summary", 5), ("description", 4), ("incident_location", 3), ("text", 1))
+
+
 def search(
     db: Session,
     q: str | None = None,
@@ -136,17 +169,21 @@ def search(
     agency: str | None = None,
     media: str | None = None,
     tags: list[tuple[str, str]] | None = None,
-    sort: str = "release",
+    sort: str | None = None,
     page: int = 1,
     per_page: int = 30,
 ) -> SearchResult:
+    """``sort`` defaults to relevance when there is a search term, else the
+    newest release."""
     conds = []
-    if q:
-        like = f"%{q.strip()}%"
-        conds.append(or_(
-            Document.title.ilike(like), Document.record_id.ilike(like), Document.description.ilike(like),
-            Document.summary.ilike(like), Document.incident_location.ilike(like), Document.text.ilike(like),
-        ))
+    rank = None
+    variants = query_variants(q)
+    if variants:
+        likes = [f"%{v}%" for v in variants]
+        matches = {f: or_(*[getattr(Document, f).ilike(like) for like in likes]) for f, _ in RANK_FIELDS}
+        conds.append(or_(*matches.values()))
+        rank = sum((case((matches[f], w), else_=0) for f, w in RANK_FIELDS), 0)
+    sort = sort or ("relevance" if variants else "release")
     if release:
         conds.append(Document.release_id == release)
     if agency:
@@ -163,6 +200,8 @@ def search(
         count_q = count_q.where(where)
         list_q = list_q.where(where)
     order = {
+        "relevance": (rank.desc(), Document.release_id.desc(), Document.record_id) if rank is not None
+        else (Document.release_id.desc(), Document.record_id),
         "release": (Document.release_id.desc(), Document.featured.desc(), Document.record_id),
         "incident": (func.coalesce(Document.incident_year, 0).desc(), Document.record_id),
         "oldest": (func.coalesce(Document.incident_year, 9999).asc(), Document.record_id),
@@ -201,6 +240,12 @@ def problem_records(db: Session) -> list[Document]:
     ))
 
 
+def document_pages(db: Session, doc_id: int, start: int, end: int) -> list[Page]:
+    """Pages ``start``..``end`` (inclusive) of one record, for loading on demand."""
+    return list(db.scalars(select(Page).where(Page.document_id == doc_id, Page.page_no >= start, Page.page_no <= end)
+                           .order_by(Page.page_no)))
+
+
 def document(db: Session, doc_id: int) -> Document | None:
     return db.scalar(
         select(Document).options(selectinload(Document.tags), selectinload(Document.pages), selectinload(Document.release))
@@ -235,7 +280,7 @@ def grouped_tags(doc: Document) -> list[tuple[str, str, list[tuple[str, str]]]]:
 
 
 __all__ = [
-    "MEDIA_LABELS", "MEDIA_ORDER", "overview", "releases", "facet_counts", "era_counts", "top_locations",
+    "MEDIA_LABELS", "MEDIA_ORDER", "COMPOUNDS", "query_variants", "overview", "releases", "facet_counts", "era_counts", "top_locations",
     "highlights", "latest_release", "search", "agencies", "agency_counts", "problem_records", "document", "related",
     "status_counts", "runs", "grouped_tags", "Page",
 ]

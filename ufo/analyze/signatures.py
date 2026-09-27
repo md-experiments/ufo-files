@@ -36,6 +36,16 @@ LINK_MIN_DETAILS = 3  # ...and at least this many shared details of the phenomen
 SIGNATURE_DIMS = CORE | {"colour"}  # dimensions that define a sighting type
 DEFINING = {"shape", "motion", "sound", "structure", "effect"}  # colour + brightness alone is not a type
 WEAK = {"trail"}  # a vapour trail plus a colour is ordinary; it needs something else
+# details an account cannot report alongside each other: a type defined by one
+# never includes an account tagged with the other
+# (an object can hover and then speed off, so motion tags are not contradictions)
+_SOUNDS = {"hum", "whoosh", "roar", "whistle", "bang"}
+CONTRADICTIONS = {"silent": _SOUNDS, **{s: {"silent"} for s in _SOUNDS}}
+
+
+def contradicts(signature, tags) -> bool:
+    tags = set(tags)
+    return any(CONTRADICTIONS.get(t, set()) & tags for t in signature)
 
 
 @dataclass
@@ -163,7 +173,7 @@ def sighting_types(accounts: list[Acc], w: dict[str, float], max_types: int = 16
             for combo in itertools.combinations(sorted(s), k):
                 dims = {BY_TAG[t].dim for t in combo}
                 defining = {BY_TAG[t].dim for t in combo if t not in WEAK} & DEFINING
-                if len(dims) == k and dims & BEHAVIOUR and defining:
+                if len(dims) == k and dims & BEHAVIOUR and defining and not contradicts(combo, accounts[i].tags):
                     members[combo].append(i)
     cands = []
     for combo, idx in members.items():

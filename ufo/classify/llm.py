@@ -28,7 +28,7 @@ Program = _lit("program")
 
 
 class LLMClassification(BaseModel):
-    summary: str = Field(description="2-4 plain-language sentences a member of the public can understand: what this record is and what it describes.")
+    summary: str = Field(description="2-4 plain-language sentences a member of the public can understand: what this record is and what it describes. Lead with the substance, e.g. 'A 1952 Project Blue Book case file on the Tremonton film...'; never open with 'This is a', 'This record' or 'This document'.")
     key_points: list[str] = Field(description="Up to 5 short, concrete facts from the record (who, what, when, where, what was observed, what was concluded).")
     document_kind: Kind
     topics: list[Topic]
