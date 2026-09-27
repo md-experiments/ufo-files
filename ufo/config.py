@@ -72,6 +72,8 @@ class Settings:
     llm_enabled: bool = field(default_factory=lambda: _bool("LLM_ENABLED", True))
     llm_model_override: str = field(default_factory=lambda: os.environ.get("LLM_MODEL", "").strip())
     llm_tagging: bool = field(default_factory=lambda: _bool("LLM_TAGGING", True))
+    # let the LLM read records without a curated entry into episodes (the Events page)
+    llm_episodes: bool = field(default_factory=lambda: _bool("LLM_EPISODES", True))
     llm_workers: int = field(default_factory=lambda: _int("LLM_WORKERS", 4))
     # seconds to wait for one LLM reply before giving up (the record keeps its rules result)
     llm_timeout: int = field(default_factory=lambda: _int("LLM_TIMEOUT", 180))

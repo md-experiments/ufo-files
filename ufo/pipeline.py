@@ -476,8 +476,8 @@ def run_analysis_step(rlog: RunLog) -> None:
 
     try:
         s = run_analysis(progress=rlog)
-        rlog("analysis: %d sighting pages, %d observations, %d waves, %d sighting types, %d connections",
-             s["sighting_units"], s["observations"], s["waves"], s["clusters"], s["links"])
+        rlog("analysis: %d sighting pages, %d observations, %d waves, %d sighting types, %d connections, %d episodes",
+             s["sighting_units"], s["observations"], s["waves"], s["clusters"], s["links"], s.get("episodes", 0))
     except Exception as exc:
         log.exception("analysis failed")
         rlog("analysis failed: %s", exc)

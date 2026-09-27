@@ -199,6 +199,48 @@ class TagCache(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class Episode(Base):
+    """One event a record describes, summarised in a sentence or two and
+    classed for the Events page (see ``ufo.analyze.episodes``).
+
+    ``pages`` lists the pages it was read from (0 = the publisher's
+    description); ``details`` are event tag and context keys; ``source`` is
+    curated, llm or rules; ``account_ids`` are the sighting accounts on those
+    pages."""
+
+    __tablename__ = "episodes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), index=True)
+    page_no: Mapped[int] = mapped_column(Integer, default=0)
+    pages: Mapped[list] = mapped_column(JSON, default=list)
+    seq: Mapped[int] = mapped_column(Integer, default=0)
+    summary: Mapped[str] = mapped_column(Text)
+    event: Mapped[str] = mapped_column(String(32), index=True)
+    sub: Mapped[str] = mapped_column(String(32), index=True)
+    details: Mapped[list] = mapped_column(JSON, default=list)
+    year: Mapped[int | None] = mapped_column(Integer, index=True)
+    place: Mapped[str | None] = mapped_column(String(160))
+    outcome: Mapped[str] = mapped_column(String(16), default="not_stated")
+    explanation: Mapped[str | None] = mapped_column(String(120))
+    source: Mapped[str] = mapped_column(String(16), default="rules")
+    account_ids: Mapped[list] = mapped_column(JSON, default=list)
+
+
+class EpisodeCache(Base):
+    """LLM episodes for a record's sighting text, so each text is read once
+    per model and taxonomy version. ``key`` is a SHA-256 of version, model
+    and text."""
+
+    __tablename__ = "episode_cache"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    model: Mapped[str] = mapped_column(String(128))
+    record_id: Mapped[str] = mapped_column(String(512), index=True)
+    episodes: Mapped[list] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class Mention(Base):
     """A date or place mentioned on a sighting page (or the record's own
     incident date/location, with ``page_no`` 0)."""

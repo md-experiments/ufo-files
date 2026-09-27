@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}{{ g.sub_label or g.event_label }} · Events · UFO Files{% endblock %}
+{% block content %}
+<p class="small"><a href="/events#tree">← All events</a>{% if g.sub %} · <a href="/events/{{ g.event }}">{{ g.event_label }}</a>{% endif %}</p>
+<div class="eyebrow">{{ 'Subcategory' if g.sub else 'Event class' }}</div>
+<h1><span class="sw {{ g.cls }}"></span> {{ g.sub_label or g.event_label }}</h1>
+<p class="secondary">{{ g.description | capitalize }}. {{ g.total | n }} episode{{ 's' if g.total != 1 }}{% if g.node %} in {{ g.node.records | n }} record{{ 's' if g.node.records != 1 }}{% if g.node.years %}, {{ g.node.years[0] }}{% if g.node.years[1] != g.node.years[0] %}–{{ g.node.years[1] }}{% endif %}{% endif %}{% endif %}.{% if g.node and g.node.top_details %} Most often reported: {% for d in g.node.top_details %}{{ d.label | lower }} ({{ (100 * d.share) | round | int }}%){{ ', ' if not loop.last }}{% endfor %}.{% endif %}</p>
+{% if g.outcome_bar %}
+<div class="chips" style="margin:6px 0 4px">{% for label, cls in g.outcome_legend %}<span class="chip"><span class="sw {{ cls }}"></span>{{ label }}</span>{% endfor %}</div>
+<div style="max-width:520px">{{ g.outcome_bar }}</div>
+{% endif %}
+
+{% if g.subs is defined %}
+  {% for s in g.subs %}
+  <section class="section">
+    <h2><a href="/events/{{ g.event }}/{{ s.key }}">{{ s.label }}</a> <small>{{ s.count | n }} episode{{ 's' if s.count != 1 }} · {{ s.description }}</small></h2>
+    <div class="ev-list">
+      {% for e in s.examples %}{% include "_episode.html" %}{% endfor %}
+    </div>
+    {% if s.count > s.examples | length %}<p class="small"><a href="/events/{{ g.event }}/{{ s.key }}">All {{ s.count | n }} episodes →</a></p>{% endif %}
+  </section>
+  {% endfor %}
+{% else %}
+  {% if not g.records %}<div class="empty">No episodes here yet.</div>{% endif %}
+  {% for rec in g.records %}
+  <article class="card evidence-record">
+    <h3><a href="/documents/{{ rec.doc.id }}">{{ rec.doc.title }}</a></h3>
+    <div class="muted small">{{ rec.doc.record_id }}{% if rec.doc.agency %} · {{ rec.doc.agency }}{% endif %} · {{ rec.episodes | length }} episode{{ 's' if rec.episodes | length != 1 }}</div>
+    <div class="ev-list">
+      {% for e in rec.episodes %}{% include "_episode.html" %}{% endfor %}
+    </div>
+  </article>
+  {% endfor %}
+  {% if g.shown < g.total %}<p class="muted small">Showing the first {{ g.shown }} of {{ g.total }} episodes; the rest are in the <a href="/api/events">JSON</a>.</p>{% endif %}
+{% endif %}
+{% endblock %}

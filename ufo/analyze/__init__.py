@@ -25,7 +25,8 @@ from datetime import date
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from ..db import Account, AnalysisResult, Document, Mention, Observation, Tag, has_classification, session_scope, utcnow
+from ..db import Account, AnalysisResult, Document, Episode, Mention, Observation, Tag, has_classification, session_scope, utcnow
+from .episodes import build_episodes
 from .extract import extract_all
 from .features import BY_KEY, GROUPS, OBSERVABLES
 from .links import series_key
@@ -34,7 +35,7 @@ from .places import STATES, place_label
 log = logging.getLogger(__name__)
 
 MAP_MAX = 3000  # accounts drawn on the map of sighting accounts
-ANALYSIS_VERSION = 5  # bump when stored results change shape; triggers a rebuild on startup
+ANALYSIS_VERSION = 6  # bump when stored results change shape; triggers a rebuild on startup
 MIN_PAIR_COUNT = 4  # co-occurrence pairs seen fewer times are noise
 
 
@@ -47,18 +48,25 @@ def run_analysis(progress=None) -> dict:
     progress("tagged %d sighting accounts; computing sighting types, map and connections", totals["accounts"])
     if totals["tagging"]["tagged"] or totals["tagging"]["failed"]:
         log.info("LLM tagging: %(tagged)d tagged, %(cached)d cached, %(failed)d failed (kept rules)", totals["tagging"])
+    from .llm_episodes import episodes_enabled, reader_id
+
+    with session_scope() as db:
+        ep = build_episodes(db, progress)
+    progress("episodes: %d in %d records (%d hand-read, %d by the LLM, %d by rules)",
+             ep["episodes"], ep["records"], ep["curated"], ep["llm"], ep["rules"])
     with session_scope() as db:
         results = compute(db)
         # a partial run (some LLM calls failed) is retried on the next pipeline run
         results["tagger"] = totals["tagger"] + (":partial" if totals["tagging"]["failed"] else "")
+        results["reader"] = reader_id() + (":partial" if episodes_enabled() and ep["rules"] else "")
         db.execute(delete(AnalysisResult))
         now = utcnow()
         for key, data in results.items():
             db.add(AnalysisResult(key=key, data=data, computed_at=now))
     summary = results["overview"]
-    log.info("analysis: %d sighting pages, %d observations, %d waves, %d clusters, %d links",
+    log.info("analysis: %d sighting pages, %d observations, %d waves, %d clusters, %d links, %d episodes",
              totals["sighting_units"], totals["observations"], len(results["timeline"]["waves"]),
-             len(results["clusters"]), len(results["links"]))
+             len(results["clusters"]), len(results["links"]), summary["episodes"])
     return summary
 
 
@@ -73,13 +81,16 @@ def load_results(db: Session) -> dict:
 def analysis_outdated(db: Session) -> bool:
     """True when results exist but were computed by an older version, or by a
     different tagger (an LLM key was added, removed or changed)."""
+    from .llm_episodes import reader_id
     from .llm_tags import tagger_id
 
     if not db.scalar(select(func.count()).select_from(AnalysisResult)):
         return False
     version, tagger = db.get(AnalysisResult, "version"), db.get(AnalysisResult, "tagger")
+    reader = db.get(AnalysisResult, "reader")
     return (version is None or version.data != ANALYSIS_VERSION
-            or tagger is None or tagger.data != tagger_id())
+            or tagger is None or tagger.data != tagger_id()
+            or reader is None or reader.data != reader_id())
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +134,7 @@ def compute(db: Session) -> dict:
     }
     results.update(connections(db, docs, unit_year))
     results.update(profiles(db, docs, unit_features, unit_places, unit_year))
+    results["hierarchy"] = events_hierarchy(db, docs)
     results["version"] = ANALYSIS_VERSION
     results["overview"] = {
         "sighting_units": len(all_units),
@@ -133,8 +145,21 @@ def compute(db: Session) -> dict:
         "clusters": len(results["clusters"]),
         "links": len(results["links"]),
         "accounts": results["accounts"],
+        "episodes": results["hierarchy"]["total"],
     }
     return results
+
+
+def events_hierarchy(db: Session, docs) -> dict:
+    """How the episodes split into event classes and subcategories (see ``hierarchy``)."""
+    from .hierarchy import hierarchy_summary
+
+    rows = db.execute(select(Episode.id, Episode.document_id, Episode.event, Episode.sub, Episode.details,
+                             Episode.year, Episode.outcome, Episode.source).order_by(Episode.id)).all()
+    episodes = [{"id": r.id, "doc": r.document_id, "event": r.event, "sub": r.sub, "details": list(r.details or []),
+                 "year": r.year, "outcome": r.outcome, "source": r.source} for r in rows if r.document_id in docs]
+    info = {i: {"agency": d.agency, "title": d.title, "record_id": d.record_id} for i, d in docs.items()}
+    return hierarchy_summary(episodes, info)
 
 
 def _decade(year: int | None) -> str | None:

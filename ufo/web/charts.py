@@ -229,3 +229,53 @@ def stacked_bar(segments: list[dict], total: int) -> Markup:
         parts.append(f'<span class="stack-seg {s["cls"]}" style="flex:{s["n"]}" data-tip="{_e(tip)}" title="{_e(tip)}"></span>')
     parts.append("</div>")
     return Markup("".join(parts))
+
+
+EVENT_FILL = {"sighting": "#2a78d6", "sensor": "#1baf7a", "encounter": "#eb6834", "traces": "#eda100",
+              "space": "#8e5bd1", "none": "#77766f"}
+
+
+def circle_map(m: dict, tips: dict[int, str], hrefs: dict[int, str], labels: dict[str, str],
+               sub_labels: dict[tuple[str, str], str], counts: dict[tuple[str, str], int],
+               narrow: bool = False) -> Markup:
+    """The events as packed circles: a circle per event class, the
+    subcategory circles inside it, one dot per episode inside those."""
+    w = 400 if narrow else 1000
+    h = max(200, round(w * m.get("aspect", 0.6)))
+    pr = max(1.2 if narrow else 2.2, m.get("point", 0.005) * w * 0.9)
+    parts = [f'<svg class="chart evmap{" narrow" if narrow else ""}" viewBox="0 0 {w} {h}" role="img" '
+             f'aria-label="Map of events: one dot per episode, grouped by class and subcategory">']
+    for c in m.get("classes", []):
+        cx, cy, r = c["x"] * w, c["y"] * w, c["r"] * w
+        fill = EVENT_FILL.get(c["key"], "#77766f")
+        parts.append(f'<a href="/events/{c["key"]}"><circle class="ev-class ev-{c["key"]}" fill="{fill}" fill-opacity="0.07" '
+                     f'stroke="{fill}" stroke-opacity="0.5" cx="{cx:.1f}" cy="{cy:.1f}" r="{r:.1f}"><title>{_e(labels.get(c["key"], c["key"]))}</title></circle></a>')
+        for s in c.get("subs", []):
+            sx, sy, sr = s["x"] * w, s["y"] * w, s["r"] * w
+            name = sub_labels.get((c["key"], s["key"]), s["key"])
+            n = counts.get((c["key"], s["key"]), 0)
+            parts.append(f'<a href="/events/{c["key"]}/{s["key"]}"><circle class="ev-sub" fill="{fill}" fill-opacity="0.08" stroke="{fill}" '
+                         f'stroke-opacity="0.35" stroke-dasharray="3 3" cx="{sx:.1f}" cy="{sy:.1f}" r="{sr:.1f}"><title>{_e(name)}: {n} episode{"s" if n != 1 else ""}</title></circle></a>')
+    for p in m.get("points", []):
+        fill = EVENT_FILL.get(p["e"], "#77766f")
+        parts.append(f'<a href="{_e(hrefs.get(p["id"], "#"))}"><circle class="pt ev-{p["e"]}" fill="{fill}" fill-opacity="0.75" '
+                     f'cx="{p["x"] * w:.1f}" cy="{p["y"] * w:.1f}" r="{pr:.1f}"><title>{_e(tips.get(p["id"], ""))}</title></circle></a>')
+    fs = 11 if narrow else 13
+    for c in m.get("classes", []):
+        cx, cy, r = c["x"] * w, c["y"] * w, c["r"] * w
+        if r < (34 if narrow else 40):
+            continue
+        name = labels.get(c["key"], c["key"])
+        half = len(name) * fs * 0.3
+        cx = min(max(cx, half + 2), w - half - 2)  # keep the label inside the drawing
+        parts.append(f'<text class="ev-label" fill="#0b0b0b" font-size="{fs}" font-weight="600" x="{cx:.1f}" y="{cy - r + fs + 4:.1f}" '
+                     f'text-anchor="middle" paint-order="stroke" stroke="#fcfcfb" stroke-width="3">{_e(name)}</text>')
+        for s in c.get("subs", []):
+            sr = s["r"] * w
+            if sr < (30 if narrow else 36):
+                continue
+            name = sub_labels.get((c["key"], s["key"]), s["key"])
+            parts.append(f'<text class="ev-sublabel" fill="#52514e" font-size="{fs - 2}" x="{s["x"] * w:.1f}" y="{s["y"] * w - sr + fs + 1:.1f}" '
+                         f'text-anchor="middle" paint-order="stroke" stroke="#fcfcfb" stroke-width="3">{_e(name)}</text>')
+    parts.append("</svg>")
+    return Markup("".join(parts))

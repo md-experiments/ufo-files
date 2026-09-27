@@ -33,6 +33,25 @@
     </details>
     {% endif %}
 
+    {% if episodes %}
+    <div class="section doc-episodes">
+      <h2>What happens in this record <small class="muted">{{ episodes | length }} episode{{ 's' if episodes | length != 1 }}, {{ episodes[0].source_label }}</small></h2>
+      {% for e in episodes %}
+      <div class="episode">
+        <div class="ev-path"><a href="/events/{{ e.event }}">{{ e.event_label }}</a> › <a href="/events/{{ e.event }}/{{ e.sub }}">{{ e.sub_label }}</a></div>
+        <p class="ev-summary">{{ e.summary }}</p>
+        <div class="chips">
+          <a class="small" href="{{ e.href }}">{{ 'Page' ~ ('s ' if e.pages | length > 1 else ' ') ~ (e.pages | join(', ') if e.pages | length <= 8 else (e.pages[:8] | join(', ')) ~ ' …') if e.page else "Description" }}</a>
+          {% if e.year %}<span class="muted small">{{ e.year }}</span>{% endif %}
+          {% if e.place %}<span class="muted small">{{ e.place }}</span>{% endif %}
+          {% if e.outcome != 'not_stated' %}<span class="chip strong"><span class="sw {{ e.outcome_cls }}"></span>{{ e.outcome_label }}{% if e.explanation %}: {{ e.explanation }}{% endif %}</span>{% endif %}
+          {% for c in e.chips %}<span class="chip ev-chip dim-{{ c.dim }}" title="{{ c.dim_label }}">{{ c.label }}</span>{% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
     {% if patterns.details %}
     <div class="section">
       <h2>Details found in this record <small class="muted">from the pattern analysis</small></h2>
