@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Patterns · UFO Files{% endblock %}
+{% block description %}Waves, recurring details, sighting types and connections found automatically across the declassified UFO / UAP files, each with the quotes behind it.{% endblock %}
 {% block content %}
 <section class="hero">
   <div>
@@ -122,19 +123,19 @@
     <div class="eyebrow">Wave {{ loop.index }}</div>
     <h3>{% if w.start == w.end %}{{ w.start }}{% else %}{{ w.start }}–{{ w.end }}{% endif %}
       {% if w.peak_month %}<span class="muted small">peak {{ ['January','February','March','April','May','June','July','August','September','October','November','December'][w.peak_month - 1] }} {{ w.peak_year }}</span>{% endif %}</h3>
-    <p class="wave-ratio"><strong>{{ w.ratio }}×</strong> the usual level · {{ w.pages }} pages in {{ w.records }} records</p>
+    <p class="wave-ratio"><strong>{{ w.ratio }}×</strong> the usual level · {{ w.pages }} sighting page{{ 's' if w.pages != 1 }} in {{ w.records }} record{{ 's' if w.records != 1 }}</p>
     {{ w.months_svg }}
     {% if w.distinctive %}
-    <div class="mini-label">More often than usual</div>
-    <div class="chips">{% for f in w.distinctive %}<a class="chip strong" href="{{ url('/patterns/evidence', feature=f.key, year=w.peak_year) }}" title="{{ f.count }} pages, {{ f.lift }}× the usual rate">{{ f.label }} <span class="muted">{{ f.lift }}×</span></a>{% endfor %}</div>
+    <div class="mini-label">More often than usual <span class="muted">(× the usual rate)</span></div>
+    <div class="chips">{% for f in w.distinctive %}<a class="chip strong" href="{{ url('/patterns/evidence', feature=f.key, year=w.peak_year) }}" title="{{ f.count }} sighting page{{ 's' if f.count != 1 }}, {{ f.lift }}× the usual rate">{{ f.label }} <span class="muted">{{ f.lift }}×</span></a>{% endfor %}</div>
     {% endif %}
     {% if w.features %}
-    <div class="mini-label">Most reported</div>
-    <div class="chips">{% for f in w.features %}<a class="chip" href="{{ url('/patterns/evidence', feature=f.key, year=w.peak_year) }}">{{ f.label }} <span class="muted">{{ f.count }}</span></a>{% endfor %}</div>
+    <div class="mini-label">Most reported <span class="muted">(sighting pages)</span></div>
+    <div class="chips">{% for f in w.features %}<a class="chip" href="{{ url('/patterns/evidence', feature=f.key, year=w.peak_year) }}" title="{{ f.count }} sighting page{{ 's' if f.count != 1 }} in this wave">{{ f.label }} <span class="muted">{{ f.count }} p.</span></a>{% endfor %}</div>
     {% endif %}
     {% if w.places %}
-    <div class="mini-label">Places mentioned</div>
-    <div class="chips">{% for pl in w.places %}<a class="chip" href="{{ url('/patterns/evidence', place=pl.key, year=w.peak_year) }}">{{ pl.label }} <span class="muted">{{ pl.count }}</span></a>{% endfor %}</div>
+    <div class="mini-label">Places mentioned <span class="muted">(sighting pages)</span></div>
+    <div class="chips">{% for pl in w.places %}<a class="chip" href="{{ url('/patterns/evidence', place=pl.key, year=w.peak_year) }}" title="{{ pl.count }} sighting page{{ 's' if pl.count != 1 }} in this wave">{{ pl.label }} <span class="muted">{{ pl.count }} p.</span></a>{% endfor %}</div>
     {% endif %}
     <a class="small" href="{{ url('/patterns/evidence', year=w.peak_year) }}">Read the {{ w.peak_year }} pages →</a>
   </article>
@@ -142,13 +143,13 @@
 </div>
 
 <section class="section" id="details">
-  <h2>Recurring details</h2>
-  <p class="secondary small">How many records report each detail. The small columns show the decades it was reported in, from {{ p.decades[0] if p.decades }} to {{ p.decades[-1] if p.decades }}. Statements like "no sound" and empty form fields ("Odor detected: none") are excluded. Click a detail to read every quote.</p>
+  <h2>Recurring details <small>records reporting each, most first</small></h2>
+  <p class="secondary small">The large number is how many <strong>records</strong> report the detail; the line under it adds the number of sighting <strong>pages</strong> (a long file can report one detail on many pages). The small columns show the decades it was reported in, from {{ p.decades[0] if p.decades }} to {{ p.decades[-1] if p.decades }}. Statements like "no sound" and empty form fields ("Odor detected: none") are excluded. Click a detail to read every quote.</p>
   <div class="detail-grid">
     {% for g, glabel, feats in p.groups %}{% for f in feats %}
     <a class="detail" href="{{ url('/patterns/evidence', feature=f.key) }}" title="{{ f.description }}">
       <span class="detail-group">{{ glabel }}</span>
-      <span class="detail-head"><span class="detail-name">{{ f.label }}</span><span class="detail-n" title="records">{{ f.records }}</span></span>
+      <span class="detail-head"><span class="detail-name">{{ f.label }}</span><span class="detail-n" title="{{ f.records }} record{{ 's' if f.records != 1 }}">{{ f.records }} <small>rec.</small></span></span>
       <span class="detail-foot">{{ p.sparks[f.key] }}</span>
       <span class="detail-meta">{{ f.records }} record{{ 's' if f.records != 1 }} · {{ f.pages }} page{{ 's' if f.pages != 1 }}{% if f.first_year %} · {{ f.first_year }}{% if f.last_year != f.first_year %}–{{ f.last_year }}{% endif %}{% endif %}</span>
     </a>

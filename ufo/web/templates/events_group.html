@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ g.sub_label or g.event_label }} · Events · UFO Files{% endblock %}
+{% block description %}{{ g.description | capitalize }}: {{ g.total | n }} episode{{ 's' if g.total != 1 }} from the declassified UFO files{% if g.node %}, in {{ g.node.records | n }} record{{ 's' if g.node.records != 1 }}{% endif %}.{% endblock %}
 {% block content %}
 <p class="small"><a href="/events#tree">← All events</a>{% if g.sub %} · <a href="/events/{{ g.event }}">{{ g.event_label }}</a>{% endif %}</p>
 <div class="eyebrow">{{ 'Subcategory' if g.sub else 'Event class' }}</div>

@@ -49,7 +49,8 @@ def patterns_context(db: Session, derived: bool = True) -> dict:
     for f in r["features"]:
         if f["pages"]:
             grouped[f["group"]].append(f)
-    groups = [(g, GROUPS[g], sorted(grouped[g], key=lambda f: -f["pages"])) for g in GROUPS if grouped.get(g)]
+    # the grid shows the record count, so it is sorted by the record count
+    groups = [(g, GROUPS[g], sorted(grouped[g], key=lambda f: (-f["records"], -f["pages"]))) for g in GROUPS if grouped.get(g)]
 
     heat = charts.heatmap(
         [(row["key"], row["label"]) for row in fd["rows"]],
@@ -154,6 +155,40 @@ def evidence(db: Session, feature: str | None, year: int | None, place: str | No
     return {"total": total, "records": records, "shown": len(rows),
             "feature": BY_KEY.get(feature) if feature else None, "year": year,
             "place": place, "place_label": place_label(place) if place else None}
+
+
+def evidence_index(db: Session) -> dict:
+    """What /patterns/evidence can show, for the page reached without a query:
+    every detail (by group), the waves' peak years, and the places most mentioned."""
+    r = load_results(db)
+    if not r:
+        return {"ready": False}
+    grouped = defaultdict(list)
+    for f in r["features"]:
+        if f["records"]:
+            grouped[f["group"]].append(f)
+    groups = [(GROUPS[g], sorted(grouped[g], key=lambda f: -f["records"])) for g in GROUPS if grouped.get(g)]
+    years = [{"year": w["peak_year"], "start": w["start"], "end": w["end"], "pages": w["pages"]}
+             for w in r["timeline"]["waves"]]
+    return {"ready": True, "groups": groups, "years": years, "places": r["places"]["top"]}
+
+
+def evidence_title(ev: dict) -> str:
+    parts = [ev["feature"].label if ev.get("feature") else None, ev.get("place_label"), ev.get("year")]
+    return " · ".join(str(x) for x in parts if x) + " evidence"
+
+
+def evidence_description(ev: dict) -> str:
+    n, k = ev["total"], len(ev["records"])
+    what = f"{n:,} sighting page{'s' if n != 1 else ''} in {k:,} record{'s' if k != 1 else ''}"
+    about = []
+    if ev.get("feature"):
+        about.append(f"reporting {ev['feature'].label.lower()}")
+    if ev.get("place_label"):
+        about.append(f"mentioning {ev['place_label']}")
+    if ev.get("year"):
+        about.append(f"mentioning {ev['year']}")
+    return f"{what} {' and '.join(about)}, each with its quote from the declassified UFO files."
 
 
 def document_patterns(db: Session, doc: Document) -> dict:

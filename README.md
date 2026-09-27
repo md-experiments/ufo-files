@@ -283,7 +283,8 @@ Run it by hand with `python -m ufo analyze`.
   are marked wherever they are counted.
 
   Every mark links to `/patterns/evidence?feature=&year=&place=`, which lists
-  the matching sighting pages with quotes.
+  the matching sighting pages with quotes; without a query it lists every
+  detail, wave and place to pick from.
 * **Events** (`/events`): what happens in the files, one episode at a
   time. An org chart of the hierarchy (class, then subcategory, with counts
   and share bars), a map of every episode as a dot packed inside its
@@ -297,7 +298,8 @@ Run it by hand with `python -m ufo analyze`.
   hierarchy and every episode as JSON.
 * **Connections** (`/patterns/links`): every cross-link, with its
   best-matching pair of accounts. `/patterns/compare?a=&b=` compares any two
-  records account by account. Each matching pair shows:
+  records account by account (with a record missing it asks for two, and
+  offers the listed connections). Each matching pair shows:
   * the details both describe, highlighted in the text;
   * the details only one of them mentions;
   * whether the two are copies of the same report;
@@ -332,6 +334,11 @@ Run it by hand with `python -m ufo analyze`.
 The web process runs the pipeline in a background thread on startup and then
 every `PIPELINE_INTERVAL_HOURS` (once a day by default), counted from the last finished run so redeploys
 don't trigger extra runs. Runs are guarded so they never overlap.
+
+Every page carries a canonical link and Open Graph / Twitter card tags, so a
+shared link gets a preview (`static/og.png`, drawn by `tools/og_image.py`),
+and its title says what it shows: "FBI records · Browse", "Halo / glow
+evidence", the record's own title.
 
 ## Deploying to Railway
 

@@ -120,6 +120,47 @@ def test_web_pages_render(fake):
         assert client.get("/documents/999").status_code == 404
         assert client.post("/api/pipeline/run").status_code == 401
         assert "2026" in client.get("/documents/1").text and "8 May 2026" in client.get("/releases").text
+        # every page names itself: canonical link, Open Graph / Twitter cards, a real <title>
+        home = client.get("/").text
+        assert '<link rel="canonical" href="http://testserver/">' in home
+        assert '<meta property="og:title" content="UFO Files Tracker">' in home
+        assert '<meta property="og:image" content="http://testserver/static/og.png?v=' in home
+        assert '<meta name="twitter:card" content="summary_large_image">' in home
+        assert client.get("/static/og.png").headers["content-type"] == "image/png"
+        assert "<title>All records · Browse · UFO Files</title>" in client.get("/documents").text
+        page = client.get("/documents?agency=Department+of+War&tag=shape:orb&page=1").text
+        assert "<title>Orb / sphere · Department of War records · Browse · UFO Files</title>" in page
+        assert '<link rel="canonical" href="http://testserver/documents?agency=Department+of+War&amp;tag=shape:orb&amp;page=1">' in page
+        assert "<title>Search: roswell in Videos · Browse · UFO Files</title>" in client.get("/documents?q=roswell&media=video").text
+        doc = client.get("/documents/1").text
+        assert "<title>D1, Report · UFO Files</title>" in doc
+        assert '<meta name="description" content="A pilot observed an orb over the ocean.">' in doc
+        assert '<meta property="og:url" content="http://testserver/documents/1">' in doc
+        # the extracted-text download names the file after the record id, whatever characters it has
+        txt = client.get("/documents/1/text.txt")
+        assert txt.status_code == 200 and txt.headers["content-disposition"] == 'inline; filename="D1.txt"'
+
+
+def test_text_download_with_non_ascii_record_id(fake):
+    from fastapi.testclient import TestClient
+
+    files, tmp = fake
+    rid = "331_120752_Numeric_Files_1944–1945_German_Armament"  # an en dash, as in the FBI release
+    files["https://example.gov/fbi.pdf"] = make_pdf(tmp / "fbi.pdf", ["Flying discs were reported over Germany."])
+    FakeSource.records = [rec(rid, date(2026, 5, 8), url="https://example.gov/fbi.pdf")]
+    pipeline.run_pipeline()
+
+    from ufo.web.app import app, content_disposition
+
+    with TestClient(app) as client:
+        r = client.get("/documents/1/text.txt")
+        assert r.status_code == 200, r.text[-300:]
+        assert r.headers["content-disposition"] == (
+            'inline; filename="331_120752_Numeric_Files_19441945_German_Armament.txt"; '
+            "filename*=UTF-8''331_120752_Numeric_Files_1944%E2%80%931945_German_Armament.txt")
+        assert "Flying discs" in r.text
+    assert content_disposition('a"b;c.txt') == 'inline; filename="abc.txt"; filename*=UTF-8\'\'a%22b%3Bc.txt'
+    assert content_disposition("–") == 'inline; filename="download"; filename*=UTF-8\'\'%E2%80%93'
 
 
 def test_friendly_error_pages_and_crawler_files(fake):
@@ -333,7 +374,24 @@ def test_analysis_stage_and_patterns_pages(fake):
             assert client.get(f"/patterns/verdicts/{group}").status_code == 200
         assert client.get("/patterns/verdicts/maybe").status_code == 404
         assert client.get("/patterns/encounters/ce9").status_code == 404
-        assert client.get("/patterns/evidence").status_code == 400
+        # a bare evidence or compare URL is a page that helps pick, not a 400
+        bare = client.get("/patterns/evidence")
+        assert bare.status_code == 200 and "Pick a detail, a year or a place" in bare.text
+        assert 'href="/patterns/evidence?feature=silent"' in bare.text and "/patterns/evidence?year=1947" in bare.text
+        for path in ("/patterns/compare", "/patterns/compare?a=1"):
+            pick = client.get(path)
+            assert pick.status_code == 200 and "Pick two records to compare" in pick.text, path
+        # evidence pages have their own title and description
+        ev = client.get("/patterns/evidence?feature=silent&year=1947").text
+        assert "<title>Silent · 1947 evidence · UFO Files</title>" in ev
+        assert 'name="description" content="' in ev and "reporting silent and mentioning 1947" in ev
+        # the details grid is sorted by the number it shows (records), within each group
+        r = client.get("/api/patterns").json()
+        from ufo.web.patterns import patterns_context
+        with session_scope() as db:
+            for _, _, feats in patterns_context(db)["groups"]:
+                assert [f["records"] for f in feats] == sorted((f["records"] for f in feats), reverse=True)
+        assert "sighting pages in" in page and "rec.</small>" in page
         cmp = client.get("/patterns/compare?a=1&b=2")
         assert cmp.status_code == 200, cmp.text[-800:]
         assert "Matching accounts" in cmp.text

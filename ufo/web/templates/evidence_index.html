@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Evidence · Patterns · UFO Files{% endblock %}
+{% block description %}Read the sighting pages behind every recurring detail, wave and place found in the declassified UFO files.{% endblock %}
+{% block content %}
+<p class="small"><a href="/patterns">← Patterns</a></p>
+<div class="eyebrow">Evidence</div>
+<h1>Pick a detail, a year or a place</h1>
+<p class="secondary">This page shows the sighting pages behind the patterns, each with its quote. Choose what to read: every page reporting a detail, every page mentioning a year (the waves are listed) or a place, or any combination by adding <code>feature</code>, <code>year</code> and <code>place</code> to the address.</p>
+{% if not ix.ready %}
+<div class="empty">The analysis runs after the pipeline has processed records. Check back shortly.</div>
+{% else %}
+<section class="section">
+  <h2>Details <small>records reporting each</small></h2>
+  {% for glabel, feats in ix.groups %}
+  <div class="mini-label">{{ glabel }}</div>
+  <div class="chips">{% for f in feats %}<a class="chip" href="{{ url('/patterns/evidence', feature=f.key) }}" title="{{ f.description }}">{{ f.label }} <span class="muted">{{ f.records }}</span></a>{% endfor %}</div>
+  {% endfor %}
+</section>
+{% if ix.years %}
+<section class="section">
+  <h2>Waves <small>sighting pages mentioning the peak year</small></h2>
+  <div class="chips">{% for y in ix.years %}<a class="chip" href="{{ url('/patterns/evidence', year=y.year) }}">{{ y.year }}{% if y.start != y.end %} <span class="muted">({{ y.start }}–{{ y.end }})</span>{% endif %} <span class="muted">{{ y.pages }} p.</span></a>{% endfor %}</div>
+</section>
+{% endif %}
+{% if ix.places %}
+<section class="section">
+  <h2>Places <small>sighting pages mentioning each</small></h2>
+  <div class="chips">{% for pl in ix.places %}<a class="chip" href="{{ url('/patterns/evidence', place=pl.key) }}">{{ pl.label }} <span class="muted">{{ pl.count }} p.</span></a>{% endfor %}</div>
+</section>
+{% endif %}
+{% endif %}
+{% endblock %}

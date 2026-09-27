@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -215,6 +216,24 @@ def _highlight(text: str, q: str | None, width: int = 220) -> Markup:
     return Markup(out + ("…" if start + width < len(text) else ""))
 
 
+def _meta_text(text: str | None, width: int = 200) -> str | None:
+    """A summary cut to fit a meta description (whole words, no newlines)."""
+    if not text:
+        return None
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) <= width:
+        return text
+    return text[:width].rsplit(" ", 1)[0].rstrip(".,;:") + "…"
+
+
+def _canonical(request: Request) -> str:
+    """The page's own URL, without the query string for plain pages: a Browse
+    page with a filter keeps it (the filter is what the page is about)."""
+    url = request.url.remove_query_params([k for k in request.query_params]) if request.url.path not in (
+        "/documents", "/patterns/evidence", "/patterns/compare") else request.url
+    return str(url).rstrip("?")
+
+
 def _url(path: str, **params) -> str:
     clean = {k: v for k, v in params.items() if v not in (None, "", [])}
     return path + ("?" + urlencode(clean, doseq=True) if clean else "")
@@ -226,7 +245,8 @@ templates.env.filters["d"] = _date
 templates.env.globals.update(
     label=label, FACET_LABELS=FACET_LABELS, FACETS=FACETS, MEDIA_LABELS=Q.MEDIA_LABELS,
     MEDIA_ORDER=Q.MEDIA_ORDER, highlight=_highlight, url=_url, version=__version__, asset_version=ASSET_VERSION,
-    incident_date=incident_date_text, date_label=date_label, issues_url=ISSUES_URL,
+    incident_date=incident_date_text, date_label=date_label, issues_url=ISSUES_URL, canonical=_canonical,
+    meta_text=_meta_text,
 )
 
 
@@ -333,10 +353,35 @@ def documents(
             # past the end (the list shrank, or a typo): go to the last page
             return RedirectResponse(_url("/documents", q=q, release=release, agency=agency, media=media, sort=sort,
                                          tag=tag, page=res.pages if res.pages > 1 else None), status_code=302)
+        rels = Q.releases(db)
+        title = browse_title(q=q, release=next((r["label"] for r in rels if r["id"] == release), None),
+                             agency=agency, media=media, tags=tags, page=page_no)
         return render(
             request, "documents.html", res=res, q=q or "", release=release, agency=agency, media=media,
-            tags=tags, tag_values=tag, sort=sort, releases=Q.releases(db), agencies=Q.agencies(db),
+            tags=tags, tag_values=tag, sort=sort, releases=rels, agencies=Q.agencies(db),
+            page_title=title, page_description=f"{res.total:,} record{'s' if res.total != 1 else ''}: {title}.",
         )
+
+
+def browse_title(q: str | None = None, release: str | None = None, agency: str | None = None,
+                 media: str | None = None, tags: list[tuple[str, str]] = (), page: int = 1) -> str:
+    """What a Browse page lists, for its <title>: "FBI records", "Search: roswell",
+    "Unresolved · Orb records · page 2"."""
+    parts = [f"{FACET_LABELS.get(f, f.title())}: {label(f, v)}" if f == "era" else label(f, v) for f, v in tags]
+    if agency:
+        parts.append(agency)
+    if media:
+        parts.append(Q.MEDIA_LABELS.get(media, media))
+    if release:
+        parts.append(release)
+    what = " · ".join(parts)
+    if q:
+        what = f"Search: {q.strip()}" + (f" in {what}" if what else "")
+    elif what:
+        what = f"{what} records" if not media else what
+    else:
+        what = "All records"
+    return what + (f" · page {page}" if page > 1 else "")
 
 
 def _page_number(value: str | None) -> int:
@@ -355,7 +400,8 @@ def document(request: Request, doc_id: int):
             raise HTTPException(404, "document not found")
         return render(request, "document.html", doc=doc, groups=Q.grouped_tags(doc), related=Q.related(db, doc),
                       patterns=P.document_patterns(db, doc), episodes=EV.document_episodes(db, doc),
-                      description_rest=description_remainder(doc.summary, doc.description))
+                      description_rest=description_remainder(doc.summary, doc.description),
+                      page_description=_meta_text(doc.summary or doc.description))
 
 
 @app.get("/documents/{doc_id}/text.txt", response_class=PlainTextResponse)
@@ -365,8 +411,22 @@ def document_text(doc_id: int):
         if not doc:
             raise HTTPException(404, "document not found")
         head = f"{doc.title}\nSource: {doc.file_url or '-'}\n\n"
-        return PlainTextResponse(head + (doc.text or ""), headers={
-            "Content-Disposition": f'inline; filename="{doc.record_id.replace(chr(34), "")}.txt"'})
+        return PlainTextResponse(head + (doc.text or ""),
+                                 headers={"Content-Disposition": content_disposition(doc.record_id + ".txt")})
+
+
+def content_disposition(filename: str, kind: str = "inline") -> str:
+    """A Content-Disposition header for any filename. Headers are Latin-1, so
+    a name with other characters (an en dash in "1944–1945") gets an ASCII
+    fallback plus the RFC 5987 ``filename*`` form that browsers prefer."""
+    from urllib.parse import quote
+
+    ascii_name = filename.encode("ascii", "ignore").decode().replace('"', "").replace("\\", "")
+    ascii_name = re.sub(r"[\x00-\x1f;]", "", ascii_name).strip() or "download"
+    value = f'{kind}; filename="{ascii_name}"'
+    if ascii_name != filename:
+        value += f"; filename*=UTF-8''{quote(filename, safe='')}"
+    return value
 
 
 @app.get("/releases", response_class=HTMLResponse)
@@ -405,10 +465,13 @@ def patterns_verdicts(request: Request, group: str, derived: int = 1):
 @app.get("/patterns/evidence", response_class=HTMLResponse)
 def patterns_evidence(request: Request, feature: str | None = None, year: int | None = None,
                       place: str | None = None):
-    if not (feature or year or place):
-        raise HTTPException(400, "choose a feature, year or place")
     with session_scope() as db:
-        return render(request, "evidence.html", ev=P.evidence(db, feature, year, place))
+        if not (feature or year or place):
+            # a bare URL (shared, or found by a crawler): offer what there is to pick
+            return render(request, "evidence_index.html", ix=P.evidence_index(db))
+        ev = P.evidence(db, feature, year, place)
+        return render(request, "evidence.html", ev=ev, page_title=P.evidence_title(ev),
+                      page_description=P.evidence_description(ev))
 
 
 @app.get("/patterns/links", response_class=HTMLResponse)
@@ -436,8 +499,11 @@ def patterns_encounters(request: Request, kind: str):
 
 
 @app.get("/patterns/compare", response_class=HTMLResponse)
-def patterns_compare(request: Request, a: int, b: int):
+def patterns_compare(request: Request, a: int | None = None, b: int | None = None):
     with session_scope() as db:
+        if a is None or b is None:
+            # one or both records missing: explain and offer the listed connections
+            return render(request, "compare_pick.html", a=a, b=b, lp=P.links_page(db))
         c = P.compare(db, a, b)
         if not c:
             raise HTTPException(404, "records not found")
