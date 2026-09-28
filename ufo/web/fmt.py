@@ -4,7 +4,9 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from ..analyze.features import NON_SIGHTING_KINDS as RESEARCH_KINDS, is_research_record
 from ..classify.rules import kind_from_title
+from ..sources.clean import date_note
 from ..sources.pursue import parse_us_date
 
 DATE_FMT = "%-d %b %Y"  # 2 Jul 1952: unambiguous for readers anywhere
@@ -50,6 +52,21 @@ def date_label(document_kind: str | None, title: str | None = None, media_type: 
     return "Document date" if document_kind in DOCUMENT_DATED_KINDS else "Incident date"
 
 
+_STOCK_OPENER = re.compile(r"^\s*This (?:is|record is|document is|file is|report is|video is|image is) (a|an|the)\s+", re.IGNORECASE)
+
+
+def lead_with_substance(summary: str | None) -> str | None:
+    """"This is a 1952 case file on..." -> "A 1952 case file on...": the stock
+    opener wastes the first words of every card, so it is dropped for display."""
+    if not summary:
+        return summary
+    m = _STOCK_OPENER.match(summary)
+    if not m:
+        return summary
+    article = m.group(1)
+    return article[0].upper() + article[1:] + " " + summary[m.end():]
+
+
 def description_remainder(summary: str | None, description: str | None) -> str | None:
     """When the summary is the opening of the publisher's description (the
     rules classifier's summary always is), the part of the description that
@@ -65,3 +82,7 @@ def description_remainder(summary: str | None, description: str | None) -> str |
         return None
     rest = description[m.end():].strip().lstrip(".,;:").strip()
     return rest or None
+
+
+__all__ = ["DATE_FMT", "DOCUMENT_DATED_KINDS", "RESEARCH_KINDS", "date_label", "date_note", "description_remainder",
+           "fmt_date", "incident_date_text", "is_research_record", "lead_with_substance"]

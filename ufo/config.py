@@ -87,6 +87,8 @@ class Settings:
     seed_on_startup: bool = field(default_factory=lambda: _bool("SEED_ON_STARTUP", True))
     run_on_startup: bool = field(default_factory=lambda: _bool("RUN_PIPELINE_ON_STARTUP", True))
     admin_token: str = field(default_factory=lambda: os.environ.get("ADMIN_TOKEN", ""))
+    # the auto-generated API docs list the admin endpoints; off unless asked for
+    api_docs: bool = field(default_factory=lambda: _bool("API_DOCS", False))
 
     def __post_init__(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)

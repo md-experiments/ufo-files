@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Compare two records · Patterns · UFO Files{% endblock %}
+{% block description %}Put two records from the declassified UFO files side by side to see which observed details their sighting accounts share.{% endblock %}
+{% block content %}
+<p class="small"><a href="/patterns/links">← All connections</a> · <a href="/patterns#links">Patterns</a></p>
+<div class="eyebrow">Comparison</div>
+<h1>Pick two records to compare</h1>
+<p class="secondary">A comparison needs two records{% if a is not none or b is not none %}; only one was given{% endif %}. Enter the numbers from their addresses (<code>/documents/<strong>12</strong></code>), or open one of the connections below, which are the pairs whose sighting accounts share the most.</p>
+<form class="filters" action="/patterns/compare">
+  <input type="number" name="a" min="1" value="{{ a if a is not none else '' }}" placeholder="Record A (number)" aria-label="Record A" required>
+  <input type="number" name="b" min="1" value="{{ b if b is not none else '' }}" placeholder="Record B (number)" aria-label="Record B" required>
+  <button type="submit">Compare</button>
+</form>
+{% if lp.links %}
+<section class="section">
+  <h2>Listed connections <small>{{ lp.links | length }}</small></h2>
+  <ul class="pairs">
+  {% for l in lp.links[:30] %}
+    <li><a class="pair" href="{{ url('/patterns/compare', a=l.a, b=l.b) }}">
+      <span class="pair-names">{{ l.da.title }} <span class="muted">+</span> {{ l.db.title }}</span>
+      <span class="hbar-value">{{ l.shared | length }} shared</span></a></li>
+  {% endfor %}
+  </ul>
+  {% if lp.links | length > 30 %}<p class="small"><a href="/patterns/links">All {{ lp.links | length }} connections →</a></p>{% endif %}
+</section>
+{% else %}
+<div class="empty">No connections have been computed yet.</div>
+{% endif %}
+{% endblock %}

@@ -13,7 +13,17 @@ log = logging.getLogger(__name__)
 
 # Bump when the keyword rules change: records the rules classified under an
 # older version are re-classified on the next pipeline run.
-RULES_VERSION = 2
+RULES_VERSION = 3
+
+# A title that states the assessment ("Unresolved UAP Report") settles it when
+# the classifier found none in the text.
+_TITLE_UNRESOLVED = re.compile(r"\bunresolved\b", re.IGNORECASE)
+
+
+def assessment_from_title(title: str | None, assessment: str | None) -> str:
+    if (assessment or "not_assessed") == "not_assessed" and _TITLE_UNRESOLVED.search(title or ""):
+        return "unresolved"
+    return assessment or "not_assessed"
 
 
 @dataclass
@@ -58,7 +68,7 @@ def classify_document(
         summary=_first_sentences(description) if description else (_first_sentences(text) if text else None),
         key_points=[],
         kind=rules.kind,
-        assessment=rules.assessment,
+        assessment=assessment_from_title(title, rules.assessment),
         significance=None,
         tags={k: list(v) for k, v in rules.tags.items()},
         details={"rules_version": RULES_VERSION},
@@ -113,7 +123,7 @@ def classify_document(
         summary=llm.summary,
         key_points=llm.key_points[:5],
         kind=llm.document_kind,
-        assessment=llm.assessment,
+        assessment=assessment_from_title(title, llm.assessment),
         significance=llm.significance,
         tags={k: v for k, v in tags.items() if v},
         details={
@@ -126,4 +136,4 @@ def classify_document(
     )
 
 
-__all__ = ["Classification", "classify_document", "FACETS", "FACET_LABELS", "RULES_VERSION", "label"]
+__all__ = ["Classification", "assessment_from_title", "classify_document", "FACETS", "FACET_LABELS", "RULES_VERSION", "label"]

@@ -40,7 +40,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..db import Account, Document, Episode, Mention, has_classification
 from .events import BY_TAG, DIMENSIONS, dim_of
-from .extract import NON_SIGHTING_KINDS, units
+from .extract import is_research, units
 from .features import is_sighting_text
 
 log = logging.getLogger(__name__)
@@ -525,7 +525,7 @@ def rules_episodes(doc: Document, accounts: list) -> list[Ep]:
     if out:
         return out
     text = doc.description or doc.summary or ""
-    if doc.document_kind in NON_SIGHTING_KINDS or doc.document_kind in ("administrative", "correspondence"):
+    if is_research(doc) or doc.document_kind in ("administrative", "correspondence"):
         detail = {"scientific_study": "study", "analysis": "study", "administrative": "policy",
                   "correspondence": "inquiry"}.get(doc.document_kind or "", "")
         return [Ep([0], first_sentences(text) or f"{doc.title}: no sighting is described.", "none",

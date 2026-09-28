@@ -175,15 +175,17 @@ def case_map(points: list[dict], clusters: list[dict], titles: dict[int, str], m
     numbers are drawn at their centres; hovering a cluster highlights it."""
     w, h, r, br, bf = (400, 480, 3.4, 10, 10) if narrow else (1000, 620, 5, 13, 12)
     parts = [f'<svg class="chart casemap{" narrow" if narrow else ""}" viewBox="0 0 {w} {h}" role="img" aria-label="Map of sighting accounts: accounts describing similar events are close together">']
+    # colours and radii come from the stylesheet (.pt, .pt.in); with ~3,000
+    # points every attribute costs kilobytes, so the markup is kept minimal
+    parts.append(f'<style>.casemap .pt{{r:{r}px}}</style>')
     for p in points:
         x, y = p["x"] * w, p["y"] * h
         c = p.get("cluster")
         cls = "pt in" if c else "pt"
         attr = f' data-c="{c}"' if c else ""
-        title = _e(titles.get(p["id"], ""))
         href = p.get("href") or f'/documents/{p["id"]}'
-        parts.append(f'<a href="{href}"><circle class="{cls}" fill="{"#2a78d6" if c else "#77766f"}" fill-opacity="{0.6 if c else 0.35}"{attr} cx="{x:.1f}" cy="{y:.1f}" r="{r}">'
-                     f'<title>{title}</title></circle></a>')
+        title = "" if narrow else f'<title>{_e(titles.get(p["id"], ""))}</title>'
+        parts.append(f'<a href="{href}"><circle class="{cls}"{attr} cx="{x:.0f}" cy="{y:.0f}">{title}</circle></a>')
     for c in clusters[:max_badges]:
         x, y = c["centroid"][0] * w, c["centroid"][1] * h
         parts.append(f'<g class="badge" data-c="{c["id"]}" tabindex="0"><circle fill="#fcfcfb" stroke="#0b0b0b" stroke-width="1.5" cx="{x:.1f}" cy="{y:.1f}" r="{br}"/>'

@@ -10,7 +10,7 @@
   {% if l.ea and l.eb %}
   <div class="cmp-grid">
     {% for side, doc, x in (('A', l.da, l.ea), ('B', l.db, l.eb)) %}
-    <div class="side-{{ side | lower }}"><blockquote class="ev-quote">{{ x.excerpt }}</blockquote>
+    <div class="side-{{ side | lower }}">{% if x.readable %}<blockquote class="ev-quote">{{ x.excerpt }}</blockquote>{% else %}<p class="muted small ev-quote">The matching passage on this page is garbled OCR; open the page to read the scan's text.</p>{% endif %}
       <a class="small" href="/documents/{{ doc.id }}{% if x.page %}#p{{ x.page }}{% endif %}"><span class="side-tag sm tag-{{ side | lower }}">{{ side }}</span> {{ 'Page ' ~ x.page if x.page else "Publisher's description" }}</a></div>
     {% endfor %}
   </div>

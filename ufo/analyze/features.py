@@ -140,13 +140,38 @@ _SIGHTING = re.compile(
     re.IGNORECASE,
 )
 SIGHTING_MIN_HITS = 4
+# a page of a research paper or contract must read much more like a report
+# before it counts: a literature review quoting "witnesses" is not an account
+RESEARCH_MIN_HITS = 12
 
 # Document kinds that are not sighting accounts (research papers, contracts).
 NON_SIGHTING_KINDS = {"scientific_study", "administrative"}
+# ...and research papers an LLM files under another kind ("analysis"): the
+# AAWSAP DIRD series is advanced-physics literature, not sightings.
+_RESEARCH_TITLE = re.compile(r"\bDIRD\b|literature review", re.IGNORECASE)
 
 
-def is_sighting_text(text: str) -> bool:
-    return len(_SIGHTING.findall(text or "")) >= SIGHTING_MIN_HITS
+def is_research_record(document_kind: str | None, title: str | None = None) -> bool:
+    """Research papers and paperwork: their descriptions, published dates and
+    locations (a contractor's office) are not sighting evidence."""
+    return document_kind in NON_SIGHTING_KINDS or bool(_RESEARCH_TITLE.search(title or ""))
+
+
+def is_sighting_text(text: str, min_hits: int = SIGHTING_MIN_HITS) -> bool:
+    return len(_SIGHTING.findall(text or "")) >= min_hits
+
+
+# A sensor cannot have recorded an incident that predates it. Applied to the
+# page's own year (dates it mentions, else the record's incident year).
+FEATURE_MIN_YEAR = {"infrared": 1965}
+
+# "no sound, except in three instances a rumbling roar": the exception cancels
+# the silence
+EXCEPTION_AFTER = re.compile(r"^[^.;]{0,40}\b(?:except|but|although|however|until|unless|other than)\b", re.IGNORECASE)
+
+
+def silence_has_exception(text: str, end: int) -> bool:
+    return bool(EXCEPTION_AFTER.match(text[end:end + 80]))
 
 
 def _snippet(text: str, start: int, end: int, width: int = 110) -> str:
@@ -189,6 +214,12 @@ def find_observables(text: str) -> list[Hit]:
                 continue
             if obs.key != "silent" and _EMPTY_ANSWER.match(text[m.end():m.end() + 40]):
                 continue
+            if obs.key == "silent" and silence_has_exception(text, m.end()):
+                continue
             hits.append(Hit(obs.key, _snippet(text, m.start(), m.end()), m.group(0)))
             break
     return hits
+
+
+def anachronistic(feature: str, year: int | None) -> bool:
+    return bool(year) and year < FEATURE_MIN_YEAR.get(feature, 0)

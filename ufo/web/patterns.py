@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from ..analyze import load_results
 from ..analyze.features import BY_KEY, GROUPS
 from ..analyze.places import place_label
+from ..analyze.text import is_readable, readability
 from ..classify.taxonomy import FACETS, label
 from ..db import Account, Document, Mention, Observation, Release, Tag
 from . import charts
@@ -49,7 +50,8 @@ def patterns_context(db: Session, derived: bool = True) -> dict:
     for f in r["features"]:
         if f["pages"]:
             grouped[f["group"]].append(f)
-    groups = [(g, GROUPS[g], sorted(grouped[g], key=lambda f: -f["pages"])) for g in GROUPS if grouped.get(g)]
+    # the grid shows the record count, so it is sorted by the record count
+    groups = [(g, GROUPS[g], sorted(grouped[g], key=lambda f: (-f["records"], -f["pages"]))) for g in GROUPS if grouped.get(g)]
 
     heat = charts.heatmap(
         [(row["key"], row["label"]) for row in fd["rows"]],
@@ -63,19 +65,13 @@ def patterns_context(db: Session, derived: bool = True) -> dict:
     types = [c for c in r.get("clusters", []) if "signature" in c]  # older results have no signatures
     ex_ids = {a for t in types for a in t["accounts"][:40]}
     accs = _accounts(db, ex_ids)
-    titles = doc_titles(db, {a.document_id for a in accs.values()} | {p["doc"] for p in r["map"] if "doc" in p})
+    titles = doc_titles(db, {a.document_id for a in accs.values()})
     for t in types:
         t["name"] = type_name(t)
         t["chips"] = ev_chips(t["signature"])
         t["also_labels"] = [(ev_label(k), share) for k, share in t.get("also", [])[:5]]
         t["examples"] = _examples(t, accs, titles, k=2)
     links = _link_views(db, [l for l in r["links"] if "acc_a" in l])
-    points = [p for p in r["map"] if "doc" in p]
-    for p in points:
-        p["href"] = f'/documents/{p["doc"]}' + (f'#p{p["page"]}' if p["page"] else "")
-    map_titles = {p["id"]: f'{(titles.get(p["doc"]) or {}).get("title", "")} · '
-                           f'{"page " + str(p["page"]) if p["page"] else "description"} — '
-                           + ", ".join(ev_label(k) for k in p.get("tags", [])) for p in points}
     cooc = r["cooccurrence"]
     top_pairs = sorted(cooc, key=lambda p: (-p["lift"]))[:14]
     max_lift = max((p["lift"] for p in top_pairs), default=1)
@@ -84,10 +80,15 @@ def patterns_context(db: Session, derived: bool = True) -> dict:
         w["months_svg"] = charts.month_bars(w["month_counts"], w["peak_month"], f'{w["start"]}')
     rare = sorted((f for f in r["features"] if 0 < f["records"] <= 12), key=lambda f: f["records"])
 
+    latest = db.scalar(select(Release.release_date).order_by(Release.release_date.desc()))
+    last_year = tl["years"][-1]["year"] if tl["years"] else None
     return {
         "ready": True,
         "computed_at": r.get("computed_at"),
         "overview": r["overview"],
+        "latest_release": latest,
+        # the final bar only covers the months released so far
+        "partial_year": last_year if latest and last_year == latest.year else None,
         "timeline_svg": charts.responsive(charts.timeline(tl["years"], tl["waves"]),
                                           charts.timeline(tl["years"], tl["waves"], narrow=True)),
         "waves": tl["waves"],
@@ -104,9 +105,7 @@ def patterns_context(db: Session, derived: bool = True) -> dict:
         "place_decades": r["places"]["decades"],
         "clusters": types,
         "accounts": r.get("accounts", 0),
-        "case_map": charts.responsive(
-            charts.case_map(points, types, map_titles),
-            charts.case_map(points, types, map_titles, narrow=True)),
+        "map_points": sum(1 for p in r["map"] if "doc" in p),
         "links": links,
         "rare": rare,
         "derived": derived,
@@ -154,6 +153,61 @@ def evidence(db: Session, feature: str | None, year: int | None, place: str | No
     return {"total": total, "records": records, "shown": len(rows),
             "feature": BY_KEY.get(feature) if feature else None, "year": year,
             "place": place, "place_label": place_label(place) if place else None}
+
+
+def case_map(db: Session) -> Markup:
+    """The map of sighting accounts (every account as a dot, sighting types
+    badged). Served on its own: with thousands of dots it weighs more than
+    the rest of the Patterns page, so the page fetches it when it comes into view."""
+    r = load_results(db)
+    if not r:
+        return Markup("")
+    types = [c for c in r.get("clusters", []) if "signature" in c]
+    for t in types:
+        t["name"] = type_name(t)
+    points = [p for p in r["map"] if "doc" in p]
+    titles = doc_titles(db, {p["doc"] for p in points})
+    for p in points:
+        p["href"] = f'/documents/{p["doc"]}' + (f'#p{p["page"]}' if p["page"] else "")
+    map_titles = {p["id"]: f'{(titles.get(p["doc"]) or {}).get("title", "")} · '
+                           f'{"page " + str(p["page"]) if p["page"] else "description"} — '
+                           + ", ".join(ev_label(k) for k in p.get("tags", [])[:4]) for p in points}
+    return charts.responsive(charts.case_map(points, types, map_titles),
+                             charts.case_map(points, types, map_titles, narrow=True))
+
+
+def evidence_index(db: Session) -> dict:
+    """What /patterns/evidence can show, for the page reached without a query:
+    every detail (by group), the waves' peak years, and the places most mentioned."""
+    r = load_results(db)
+    if not r:
+        return {"ready": False}
+    grouped = defaultdict(list)
+    for f in r["features"]:
+        if f["records"]:
+            grouped[f["group"]].append(f)
+    groups = [(GROUPS[g], sorted(grouped[g], key=lambda f: -f["records"])) for g in GROUPS if grouped.get(g)]
+    years = [{"year": w["peak_year"], "start": w["start"], "end": w["end"], "pages": w["pages"]}
+             for w in r["timeline"]["waves"]]
+    return {"ready": True, "groups": groups, "years": years, "places": r["places"]["top"]}
+
+
+def evidence_title(ev: dict) -> str:
+    parts = [ev["feature"].label if ev.get("feature") else None, ev.get("place_label"), ev.get("year")]
+    return " · ".join(str(x) for x in parts if x) + " evidence"
+
+
+def evidence_description(ev: dict) -> str:
+    n, k = ev["total"], len(ev["records"])
+    what = f"{n:,} sighting page{'s' if n != 1 else ''} in {k:,} record{'s' if k != 1 else ''}"
+    about = []
+    if ev.get("feature"):
+        about.append(f"reporting {ev['feature'].label.lower()}")
+    if ev.get("place_label"):
+        about.append(f"mentioning {ev['place_label']}")
+    if ev.get("year"):
+        about.append(f"mentioning {ev['year']}")
+    return f"{what} {' and '.join(about)}, each with its quote from the declassified UFO files."
 
 
 def document_patterns(db: Session, doc: Document) -> dict:
@@ -295,11 +349,17 @@ def _accounts(db: Session, ids) -> dict[int, Account]:
     return out
 
 
+def readable_first(ids, accs: dict[int, Account]) -> list[int]:
+    """Account ids with the cleanest text first (OCR noise last), ties in the given order."""
+    return sorted(ids, key=lambda aid: -readability(accs[aid].text) if aid in accs else 1)
+
+
 def _examples(t: dict, accs: dict[int, Account], titles: dict[int, dict], k: int = 3) -> list[dict]:
-    """A few accounts of a type from different records, different agencies first."""
+    """A few accounts of a type from different records, different agencies
+    first, the most readable text first."""
     seen_docs, seen_agencies, picks = set(), set(), []
     for rnd in (0, 1):
-        for aid in t["accounts"]:
+        for aid in readable_first(t["accounts"], accs):
             a = accs.get(aid)
             if not a or a.document_id in seen_docs or len(picks) >= k:
                 continue
@@ -445,9 +505,12 @@ def _link_views(db: Session, links: list[dict]) -> list[dict]:
             continue
         xa, xb = accs.get(l.get("acc_a")), accs.get(l.get("acc_b"))
         shared = set(l.get("shared", []))
+        # a garbled OCR passage is linked to, not quoted
         out.append({**l, "da": titles[l["a"]], "db": titles[l["b"]], "chips": ev_chips(shared),
-                    "ea": {"page": xa.page_no, "excerpt": event_excerpt(xa.text, xa.spans, shared, width=360)} if xa else None,
-                    "eb": {"page": xb.page_no, "excerpt": event_excerpt(xb.text, xb.spans, shared, width=360)} if xb else None})
+                    "ea": {"page": xa.page_no, "readable": is_readable(xa.text),
+                           "excerpt": event_excerpt(xa.text, xa.spans, shared, width=360)} if xa else None,
+                    "eb": {"page": xb.page_no, "readable": is_readable(xb.text),
+                           "excerpt": event_excerpt(xb.text, xb.spans, shared, width=360)} if xb else None})
     return out
 
 
@@ -499,7 +562,8 @@ def profiles_context(db: Session, r: dict, all_decades: list[str], derived: bool
         for g in ("explained", "unresolved"):
             block = o["accounts"].get(g) or {}
             examples = [{"doc": titles[a.document_id], "page": a.page_no, "excerpt": event_excerpt(a.text, a.spans, width=300)}
-                        for aid in block.get("accounts", [])[:2] for a in [accs.get(aid)] if a and a.document_id in titles]
+                        for aid in readable_first(block.get("accounts", [])[:3], accs)[:2]
+                        for a in [accs.get(aid)] if a and a.document_id in titles]
             acc_views[g] = {**block, "examples": examples}
         out["outcomes"] = {
             **o,
@@ -543,7 +607,7 @@ def profiles_context(db: Session, r: dict, all_decades: list[str], derived: bool
         kinds = []
         for k in enc["kinds"]:
             examples = []
-            for aid in k["examples"][:2]:
+            for aid in readable_first(k["examples"], accs)[:2]:
                 a = accs.get(aid)
                 if a and a.document_id in titles:
                     examples.append({"doc": titles[a.document_id], "page": a.page_no,

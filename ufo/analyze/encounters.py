@@ -21,6 +21,7 @@ import re
 from collections import Counter
 
 from .compare import MIN_GROUP, decade_of, lift_rows, top_rows
+from .text import readability
 from .events import BY_TAG, dim_of, tag_label
 
 KINDS = {
@@ -130,7 +131,7 @@ def encounter_summary(accounts: list[dict], docs: dict) -> dict:
         # examples from different records, spread across agencies
         seen_docs, seen_ag, examples = set(), set(), []
         for rnd in (0, 1):
-            for a in sorted(members, key=lambda x: (-len(x["tags"]), x["id"])):
+            for a in sorted(members, key=lambda x: (-readability(x["text"]), -len(x["tags"]), x["id"])):
                 ag = docs.get(a["doc"], {}).get("agency")
                 if a["doc"] in seen_docs or (rnd == 0 and ag in seen_ag) or len(examples) >= 4:
                     continue

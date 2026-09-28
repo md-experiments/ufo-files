@@ -101,15 +101,20 @@ seconds for the current ~450 records and 10,000 pages):
 
 * **Sighting pages.** Only pages that read like sighting reports are analysed
   (enough words such as *observed, object, sighted, altitude*), plus each
-  record's own description. Contracts and research papers only count where a
-  page reads like a report.
+  record's own description. Contracts and research papers (including the
+  AAWSAP DIRD series, whatever document type a classifier gives them) only
+  count where a page reads strongly like a report, three times the usual
+  bar, and their own description, dates and published location (a
+  contractor's office) are never sighting evidence.
 * **Recurring details** (`features.py`). Pages are searched for concrete
   observables: halo or glow, flashing, coloured lights, metallic surface,
   humming, silence, smells, hovering, extreme speed, right-angle turns,
   splitting objects, entering water, no wings or exhaust, trails, formations,
   electrical or engine interference, instrument anomalies, effects on witnesses,
   ground traces, radar, and infrared. Each hit stores the sentence it came
-  from. Two kinds of false match are dropped: negations ("no sound", "no
+  from. A sensor is not credited on a page whose own year predates it (no
+  infrared before 1965), and "no sound, except ... a rumbling roar" does not
+  count as silent. Two kinds of false match are dropped: negations ("no sound", "no
   exhaust trail") and empty form fields ("Odor detected: None").
 * **Dates and places** (`dates.py`, `places.py`). Dates are found in OCR'd
   forms ("July 7, 1947", "07JUL47", "7/7/47"). Places are U.S. states (with
@@ -143,9 +148,14 @@ seconds for the current ~450 records and 10,000 pages):
   sound and effects count most; time of day and duration least).
   * Two accounts match when they share at least two details of the phenomenon
     itself, one of them about its light, sound, movement, structure or effects.
+  * Quotes shown for a detail, a type or a connection are the most readable
+    ones (a score for the share of real words in OCR text); a connection
+    whose matching passage is garbled OCR links to the page instead.
   * A *sighting type* is a combination of two or three details that recurs in
     at least three records far more often than chance ("Flashing · Hovering ·
-    Red/orange"). Every account of a type has all of its details.
+    Red/orange"). Every account of a type has all of its details, and none
+    that contradict them (an account tagged both silent and roaring is never
+    in a "silent" type).
   * The map places every account by tag similarity (t-SNE).
   * A record's similar records, and the cross-links between records from
     different agencies or at least 15 years apart, come from their
@@ -283,7 +293,8 @@ Run it by hand with `python -m ufo analyze`.
   are marked wherever they are counted.
 
   Every mark links to `/patterns/evidence?feature=&year=&place=`, which lists
-  the matching sighting pages with quotes.
+  the matching sighting pages with quotes; without a query it lists every
+  detail, wave and place to pick from.
 * **Events** (`/events`): what happens in the files, one episode at a
   time. An org chart of the hierarchy (class, then subcategory, with counts
   and share bars), a map of every episode as a dot packed inside its
@@ -297,7 +308,8 @@ Run it by hand with `python -m ufo analyze`.
   hierarchy and every episode as JSON.
 * **Connections** (`/patterns/links`): every cross-link, with its
   best-matching pair of accounts. `/patterns/compare?a=&b=` compares any two
-  records account by account. Each matching pair shows:
+  records account by account (with a record missing it asks for two, and
+  offers the listed connections). Each matching pair shows:
   * the details both describe, highlighted in the text;
   * the details only one of them mentions;
   * whether the two are copies of the same report;
@@ -306,7 +318,13 @@ Run it by hand with `python -m ufo analyze`.
   Archive metadata is kept in a separate, collapsed section and is not used
   for matching.
 * **Browse** (`/documents`): full-text search across titles, summaries and
-  OCR'd text, with filters by release, agency, media type and any label.
+  OCR'd text, with filters by release, agency, media type and any label. With
+  a search term the list is sorted by best match (a hit in the title or id
+  outranks one deep in the text), each card shows where the term occurs, and
+  common spellings are tried together (`tictac`, `tic-tac` and `tic tac` are
+  one search). Records whose title is an archive filename get a readable one
+  (`18_6369445_General_1948_Vol_1` is shown as "General 1948 Vol 1"; the id
+  keeps the published form), and place names are normalised to one spelling.
 * **Document** (`/documents/{id}`): metadata, summary, labels, related records,
   the details found in the record (with quotes), any verdict its pages state
   (marked as derived, with the sentence), its tagged sighting accounts,
@@ -323,7 +341,12 @@ Run it by hand with `python -m ufo analyze`.
   be fetched.
 * **JSON API**: `/api/stats`, `/api/patterns`, `/api/events`, `/api/documents?q=&release=&agency=&media=&tag=facet:value`,
   `/api/documents/{id}`. Timestamps are UTC and end in `Z`. `POST /api/pipeline/run` with
-  `Authorization: Bearer $ADMIN_TOKEN` triggers a run.
+  `Authorization: Bearer $ADMIN_TOKEN` triggers a run. The generated API docs
+  (`/docs`, `/openapi.json`) are off unless `API_DOCS=true`.
+* **Admin** (`/admin`): the **Run pipeline** and **Recompute patterns**
+  buttons, behind HTTP Basic auth (any user name, `ADMIN_TOKEN` as the
+  password). It is not linked from the site and answers 404 when no token is
+  set; ten wrong tokens in a minute from one address get a 429.
 * Dates are shown as `2 Jul 1952` everywhere. Unknown pages and bad ids get
   an HTML error page with a way back (the API keeps JSON errors); a page
   number past the end redirects to the last page. `/robots.txt` and
@@ -332,6 +355,11 @@ Run it by hand with `python -m ufo analyze`.
 The web process runs the pipeline in a background thread on startup and then
 every `PIPELINE_INTERVAL_HOURS` (once a day by default), counted from the last finished run so redeploys
 don't trigger extra runs. Runs are guarded so they never overlap.
+
+Every page carries a canonical link and Open Graph / Twitter card tags, so a
+shared link gets a preview (`static/og.png`, drawn by `tools/og_image.py`),
+and its title says what it shows: "FBI records · Browse", "Halo / glow
+evidence", the record's own title.
 
 ## Deploying to Railway
 
@@ -345,9 +373,10 @@ don't trigger extra runs. Runs are guarded so they never overlap.
 3. Optional variables:
    * `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`: enables LLM summaries,
      classification and event tagging, using whichever key is set.
-   * `ADMIN_TOKEN`: enables the **Run pipeline** and **Recompute patterns**
-     buttons on `/pipeline` (paste the token there), i.e. `POST /api/pipeline/run`
-     and `POST /api/analysis/run` with `Authorization: Bearer <token>`.
+   * `ADMIN_TOKEN` (a long random string): enables `/admin` with the **Run
+     pipeline** and **Recompute patterns** buttons (sign in with the token as
+     the password), i.e. `POST /api/pipeline/run` and `POST /api/analysis/run`
+     with `Authorization: Bearer <token>`.
    * `PIPELINE_INTERVAL_HOURS` (default `24`).
 4. Deploy. On first boot the app loads the bundled snapshot
    (`data/seed/ufo-seed.json.gz`) into an empty database so the site has data
@@ -382,7 +411,8 @@ Keep one replica. The scheduler runs inside the web process.
 | `SCHEDULER_ENABLED` | `true` | run the pipeline from the web process |
 | `RUN_PIPELINE_ON_STARTUP` | `true` | run once at boot |
 | `PIPELINE_INTERVAL_HOURS` | `24` | how often to check for new releases |
-| `ADMIN_TOKEN` | — | bearer token for `POST /api/pipeline/run` and `POST /api/analysis/run` |
+| `ADMIN_TOKEN` | — | password for `/admin`; bearer token for `POST /api/pipeline/run` and `POST /api/analysis/run` |
+| `API_DOCS` | `false` | serve the generated API docs at `/docs` and `/openapi.json` |
 
 ## Running locally
 

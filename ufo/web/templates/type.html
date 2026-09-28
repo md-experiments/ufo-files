@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% block title %}{{ t.name }} · UFO Files{% endblock %}
+{% block title %}{{ t.name }} · Sighting type {{ t.type.id }} · UFO Files{% endblock %}
+{% block description %}Sighting type {{ t.type.id }}: {{ t.type.size }} accounts in {{ t.type.record_count }} records that all report {% for c in t.signature %}{{ c.label | lower }}{{ ', ' if not loop.last }}{% endfor %}.{% endblock %}
 {% block content %}
 <p class="small"><a href="/patterns#clusters">← Sighting types</a></p>
 <div class="eyebrow">Sighting type {{ t.type.id }}</div>

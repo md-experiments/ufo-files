@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Patterns · UFO Files{% endblock %}
+{% block description %}Waves, recurring details, sighting types and connections found automatically across the declassified UFO / UAP files, each with the quotes behind it.{% endblock %}
 {% block content %}
 <section class="hero">
   <div>
@@ -112,7 +113,7 @@
 
 <section class="section card" id="waves">
   <h2>When reports bunch up <small>sighting pages per year</small></h2>
-  <p class="secondary small">Each bar counts sighting pages mentioning a date in that year. A page that mentions several months is split between them, and modern records count at their published incident date. <span class="legend-inline"><i class="sw hot"></i>Shaded years are <strong>waves</strong>: at least 2.5× the level of the surrounding two decades.</span> Click a bar to read the pages.</p>
+  <p class="secondary small">Each bar counts sighting pages mentioning a date in that year (dates before 1940 are treated as file numbers and OCR noise, so the chart starts there even though the home page's incident span uses the publisher's dates). A page that mentions several months is split between them, and modern records count at their published incident date.{% if p.partial_year %} The last bar, {{ p.partial_year }}, is a partial year: it covers records released up to {{ p.latest_release | d }}.{% endif %} <span class="legend-inline"><i class="sw hot"></i>Shaded years are <strong>waves</strong>: at least 2.5× the level of the surrounding two decades.</span> Click a bar to read the pages.</p>
   <div class="scroll-x">{{ p.timeline_svg }}</div>
 </section>
 
@@ -122,19 +123,19 @@
     <div class="eyebrow">Wave {{ loop.index }}</div>
     <h3>{% if w.start == w.end %}{{ w.start }}{% else %}{{ w.start }}–{{ w.end }}{% endif %}
       {% if w.peak_month %}<span class="muted small">peak {{ ['January','February','March','April','May','June','July','August','September','October','November','December'][w.peak_month - 1] }} {{ w.peak_year }}</span>{% endif %}</h3>
-    <p class="wave-ratio"><strong>{{ w.ratio }}×</strong> the usual level · {{ w.pages }} pages in {{ w.records }} records</p>
+    <p class="wave-ratio"><strong>{{ w.ratio }}×</strong> the usual level · {{ w.pages }} sighting page{{ 's' if w.pages != 1 }} in {{ w.records }} record{{ 's' if w.records != 1 }}</p>
     {{ w.months_svg }}
     {% if w.distinctive %}
-    <div class="mini-label">More often than usual</div>
-    <div class="chips">{% for f in w.distinctive %}<a class="chip strong" href="{{ url('/patterns/evidence', feature=f.key, year=w.peak_year) }}" title="{{ f.count }} pages, {{ f.lift }}× the usual rate">{{ f.label }} <span class="muted">{{ f.lift }}×</span></a>{% endfor %}</div>
+    <div class="mini-label">More often than usual <span class="muted">(× the usual rate)</span></div>
+    <div class="chips">{% for f in w.distinctive %}<a class="chip strong" href="{{ url('/patterns/evidence', feature=f.key, year=w.peak_year) }}" title="{{ f.count }} sighting page{{ 's' if f.count != 1 }}, {{ f.lift }}× the usual rate">{{ f.label }} <span class="muted">{{ f.lift }}×</span></a>{% endfor %}</div>
     {% endif %}
     {% if w.features %}
-    <div class="mini-label">Most reported</div>
-    <div class="chips">{% for f in w.features %}<a class="chip" href="{{ url('/patterns/evidence', feature=f.key, year=w.peak_year) }}">{{ f.label }} <span class="muted">{{ f.count }}</span></a>{% endfor %}</div>
+    <div class="mini-label">Most reported <span class="muted">(sighting pages)</span></div>
+    <div class="chips">{% for f in w.features %}<a class="chip" href="{{ url('/patterns/evidence', feature=f.key, year=w.peak_year) }}" title="{{ f.count }} sighting page{{ 's' if f.count != 1 }} in this wave">{{ f.label }} <span class="muted">{{ f.count }} p.</span></a>{% endfor %}</div>
     {% endif %}
     {% if w.places %}
-    <div class="mini-label">Places mentioned</div>
-    <div class="chips">{% for pl in w.places %}<a class="chip" href="{{ url('/patterns/evidence', place=pl.key, year=w.peak_year) }}">{{ pl.label }} <span class="muted">{{ pl.count }}</span></a>{% endfor %}</div>
+    <div class="mini-label">Places mentioned <span class="muted">(sighting pages)</span></div>
+    <div class="chips">{% for pl in w.places %}<a class="chip" href="{{ url('/patterns/evidence', place=pl.key, year=w.peak_year) }}" title="{{ pl.count }} sighting page{{ 's' if pl.count != 1 }} in this wave">{{ pl.label }} <span class="muted">{{ pl.count }} p.</span></a>{% endfor %}</div>
     {% endif %}
     <a class="small" href="{{ url('/patterns/evidence', year=w.peak_year) }}">Read the {{ w.peak_year }} pages →</a>
   </article>
@@ -142,15 +143,15 @@
 </div>
 
 <section class="section" id="details">
-  <h2>Recurring details</h2>
-  <p class="secondary small">How many records report each detail. The small columns show the decades it was reported in, from {{ p.decades[0] if p.decades }} to {{ p.decades[-1] if p.decades }}. Statements like "no sound" and empty form fields ("Odor detected: none") are excluded. Click a detail to read every quote.</p>
+  <h2>Recurring details <small>records reporting each, most first</small></h2>
+  <p class="secondary small">The large number is how many <strong>records</strong> report the detail; the line under it adds the number of sighting <strong>pages</strong> (a long file can report one detail on many pages). The small columns show the decades it was reported in, from {{ p.decades[0] if p.decades }} to {{ p.decades[-1] if p.decades }}. Statements like "no sound" and empty form fields ("Odor detected: none") are excluded. Click a detail to read every quote.</p>
   <div class="detail-grid">
     {% for g, glabel, feats in p.groups %}{% for f in feats %}
     <a class="detail" href="{{ url('/patterns/evidence', feature=f.key) }}" title="{{ f.description }}">
       <span class="detail-group">{{ glabel }}</span>
-      <span class="detail-head"><span class="detail-name">{{ f.label }}</span><span class="detail-n" title="records">{{ f.records }}</span></span>
+      <span class="detail-head"><span class="detail-name">{{ f.label }}</span><span class="detail-n" title="{{ f.records }} record{{ 's' if f.records != 1 }}">{{ f.records }} <small>rec.</small></span></span>
       <span class="detail-foot">{{ p.sparks[f.key] }}</span>
-      <span class="detail-meta">{{ f.records }} record{{ 's' if f.records != 1 }} · {{ f.pages }} page{{ 's' if f.pages != 1 }}{% if f.first_year %} · {{ f.first_year }}{% if f.last_year != f.first_year %}–{{ f.last_year }}{% endif %}{% endif %}</span>
+      <span class="detail-meta">{{ f.records }} record{{ 's' if f.records != 1 }} · {{ f.pages }} page{{ 's' if f.pages != 1 }}{% if f.first_year %} · <span title="Years the pages mention, not the publisher's incident dates">mentions {{ f.first_year }}{% if f.last_year != f.first_year %}–{{ f.last_year }}{% endif %}</span>{% endif %}</span>
     </a>
     {% endfor %}{% endfor %}
   </div>
@@ -221,7 +222,9 @@
 <section class="section card" id="clusters">
   <h2>Sighting types <small>map of {{ p.accounts | n }} sighting accounts</small></h2>
   <p class="secondary small">Each sighting page is cut into accounts (paragraphs, or one report form), and each account is tagged with what was observed: shape, colour, light, sound, movement, visible structure, effects on people, machines or the ground. A sighting type is a combination of details that recurs across records far more often than chance would give. Agency, archive series, place, decade and wording play no part. Every dot is one account, placed near accounts that describe similar events. Numbered circles mark types. Hover or tap a card to highlight its accounts, or click a dot to read it.</p>
-  <div class="scroll-x">{{ p.case_map }}</div>
+  <div class="scroll-x casemap-slot" id="casemap-slot" data-src="/patterns/map">
+    <p class="muted small">Loading the map of {{ p.map_points | n }} accounts… <noscript><a href="/patterns/map">Open the map on its own.</a></noscript></p>
+  </div>
 </section>
 <div class="cluster-grid">
   {% for c in p.clusters[:16] %}
@@ -431,17 +434,37 @@
 <script>
 // highlight a cluster's records on the map when its card or badge is hovered
 (function () {
-  var maps = document.querySelectorAll('.casemap');
-  if (!maps.length) return;
+  var maps = [];  // filled once the map fragment arrives
   function on(c) { maps.forEach(function (svg) { svg.classList.add('focus'); svg.querySelectorAll('[data-c="' + c + '"]').forEach(function (el) { el.classList.add('hl'); }); }); }
   function off() { maps.forEach(function (svg) { svg.classList.remove('focus'); svg.querySelectorAll('.hl').forEach(function (el) { el.classList.remove('hl'); }); }); }
-  document.querySelectorAll('.cluster[data-c], .casemap .badge').forEach(function (el) {
+  function bind(el) {
     var c = el.getAttribute('data-c');
     el.addEventListener('mouseenter', function () { on(c); });
     el.addEventListener('focus', function () { on(c); });
     el.addEventListener('mouseleave', off);
     el.addEventListener('blur', off);
-  });
+  }
+  document.querySelectorAll('.cluster[data-c]').forEach(bind);
+  // the map is fetched when it comes into view (it weighs more than the rest of the page)
+  var slot = document.getElementById('casemap-slot');
+  function loadMap() {
+    fetch(slot.getAttribute('data-src'))
+      .then(function (r) { return r.ok ? r.text() : Promise.reject(r.status); })
+      .then(function (html) {
+        slot.innerHTML = html;
+        maps = Array.prototype.slice.call(slot.querySelectorAll('.casemap'));
+        slot.querySelectorAll('.casemap .badge').forEach(bind);
+      })
+      .catch(function () { slot.innerHTML = '<p class="muted small">The map could not be loaded. <a href="' + slot.getAttribute('data-src') + '">Open it on its own.</a></p>'; });
+  }
+  if (slot) {
+    if ('IntersectionObserver' in window) {
+      var io = new IntersectionObserver(function (entries) {
+        if (entries.some(function (e) { return e.isIntersecting; })) { io.disconnect(); loadMap(); }
+      }, { rootMargin: '400px' });
+      io.observe(slot);
+    } else { loadMap(); }
+  }
 })();
 </script>
 {% endif %}

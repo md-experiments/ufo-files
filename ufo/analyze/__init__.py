@@ -31,6 +31,7 @@ from .extract import extract_all
 from .features import BY_KEY, GROUPS, OBSERVABLES
 from .links import series_key
 from .places import STATES, place_label
+from .text import readability
 
 log = logging.getLogger(__name__)
 
@@ -177,10 +178,10 @@ def feature_summary(docs, obs, unit_year) -> list[dict]:
         hits = by_feature.get(o.key, [])
         years = [y for y in (unit_year((d, p)) for d, p, _ in hits) if y]
         decades = Counter(_decade(y) for y in years if _decade(y))
-        # evidence: one example per record, records with most hits first
+        # evidence: one example per record (its most readable quote), records with most hits first
         per_doc = Counter(d for d, _, _ in hits)
         examples, seen = [], set()
-        for doc_id, page_no, snippet in sorted(hits, key=lambda h: (-per_doc[h[0]], h[0], h[1])):
+        for doc_id, page_no, snippet in sorted(hits, key=lambda h: (-per_doc[h[0]], h[0], -readability(h[2]), h[1])):
             if doc_id in seen or doc_id not in docs:
                 continue
             seen.add(doc_id)
