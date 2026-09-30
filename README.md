@@ -35,9 +35,12 @@ parses it, and diffs it against the database:
   if the file link changed);
 * new release dates become new `Release` rows, numbered in order.
 
-**Fetching** (`ufo/fetch.py`): government sites sit behind Akamai, which often
-blocks cloud and datacenter IP ranges. Every request tries the official URL
-first and falls back to the Internet Archive's byte-identical copy
+**Fetching** (`ufo/fetch.py`): government sites sit behind Akamai, whose bot
+check refuses requests from cloud and datacenter addresses unless they look
+like a browser's: every request carries the `Sec-Fetch-*` fetch-metadata
+headers and `Accept-Encoding` that browsers send, without which war.gov
+answers 403 "Access Denied". Every request tries the official URL first and
+falls back to the Internet Archive's byte-identical copy
 (`web.archive.org/web/<ts>id_/<url>`). Files that are in neither place are
 marked `unavailable` and retried on every run. As a last resort, the pipeline
 downloads that release's official zip bundle (linked from the PURSUE page) and

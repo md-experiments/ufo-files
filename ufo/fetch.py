@@ -34,16 +34,28 @@ class FetchResult:
     content_type: str
 
 
+# Akamai's bot check in front of war.gov lets a request through only when it
+# carries the fetch-metadata headers every browser sends (Sec-Fetch-*) along
+# with Accept-Encoding, which httpx adds by itself. Without them the site
+# answers 403 "Access Denied" from datacenter addresses, whatever the
+# User-Agent says.
+BROWSER_HEADERS = {
+    "Accept": "text/html,application/pdf,text/csv,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+}
+
+
 def _client() -> httpx.Client:
     s = get_settings()
     return httpx.Client(
         timeout=httpx.Timeout(s.http_timeout, connect=30),
         follow_redirects=True,
-        headers={
-            "User-Agent": s.user_agent,
-            "Accept": "text/html,application/pdf,text/csv,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-        },
+        headers={"User-Agent": s.user_agent, **BROWSER_HEADERS},
     )
 
 
